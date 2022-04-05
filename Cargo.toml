@@ -5,6 +5,7 @@ authors = ["William Quelho Ferreira <wqferr@gmail.com>"]
 license = "GPL-3.0-or-later"
 license-file = "LICENSE"
 description = "A more comfortable version of AWK"
+readme = "README.md"
 repository = "https://github.com/wqferr/awkward"
 keywords = ["cli", "csv", "awk"]
 categories = ["command-line-utilities", "filesystem", "parsing", "text-processing"]
