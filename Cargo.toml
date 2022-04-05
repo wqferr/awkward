@@ -1,0 +1,18 @@
+[package]
+name = "awkward"
+version = "0.1.0"
+authors = ["William Quelho Ferreira <wqferr@gmail.com>"]
+license = "GPL-3.0-or-later"
+license-file = "LICENSE"
+description = "A more comfortable version of AWK"
+repository = "https://github.com/wqferr/awkward"
+keywords = ["cli", "csv", "awk"]
+categories = ["command-line-utilities", "filesystem", "parsing", "text-processing"]
+edition = "2021"
+
+[badges]
+maintenance = {status = "experimental"}
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
