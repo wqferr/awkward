@@ -118,8 +118,9 @@ fn main() -> anyhow::Result<()> {
     let mut lock = sout.lock();
     loop {
         // both flags are inverted here, but their names make more sense like this
-        let record = Record::read(&mut input, &ifs)?
-            .process(!args.allow_empty_fields, !args.dont_trim_fields);
+        let mut record = Record::read(&mut input, &ifs)?;
+        record.process(!args.allow_empty_fields, !args.dont_trim_fields);
+        
         record.write(&mut lock, &ofs)?;
         lock.write(ors.as_bytes())?;
 
