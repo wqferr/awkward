@@ -1,4 +1,16 @@
 use std::io::{BufRead, Write};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("field could not be parsed as a number")]
+    NumberParseFailure,
+
+    #[error("field with index {0} does not exist")]
+    NoSuchField(usize),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone)]
 pub struct Record {
@@ -30,7 +42,7 @@ impl Record {
         Ok(())
     }
 
-    pub fn process(self, skip_blanks: bool, trim: bool) -> Self {
+    pub fn process(&mut self, skip_blanks: bool, trim: bool) {
         let mut processed: Box<dyn Iterator<Item=String>> = Box::new(self.fields.into_iter());
         if skip_blanks {
             processed = Box::new(processed.filter(|x| !x.is_empty()));
@@ -39,21 +51,39 @@ impl Record {
             processed = Box::new(processed.map(|s| s.trim().to_owned()));
         }
 
-        Self {
-            fields: processed.collect()
-        }
+        self.fields = processed.collect();
     }
 
-    pub fn nth(&self, n: usize) -> &str {
-        self.fields.get(n)
-            .map(|s| s.as_str())
-            .unwrap_or("")
+    pub fn nth_str(&self, n: usize) -> Result<&str> {
+        if n > self.fields.len() {
+            return Err(Error::NoSuchField(n));
+        }
+        Ok(self.fields[n].as_str())
+    }
+
+    pub fn nth_int(&self, n: usize) -> Result<i32> {
+        if n > self.fields.len() {
+            return Err(Error::NoSuchField(n));
+        }
+        self.fields[n].parse::<i32>()
+            .map_err(|_| Error::NumberParseFailure)
+    }
+
+    pub fn nth_float(&self, n: usize) -> Result<f32> {
+        if n > self.fields.len() {
+            return Err(Error::NoSuchField(n));
+        }
+        self.fields[n].parse::<f32>()
+            .map_err(|_| Error::NumberParseFailure)
+    }
+
+    pub fn len(&self) -> usize {
+        self.fields.len()
     }
 }
 
 impl IntoIterator for Record {
     type Item = String;
-
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {

@@ -3,7 +3,6 @@ use std::fs::File;
 use std::fs::read_to_string;
 use std::io::BufRead;
 use std::io::BufReader;
-use std::io::Read;
 use std::io::Write;
 use std::io::stdin;
 use std::io::stdout;
@@ -118,7 +117,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut lock = sout.lock();
     loop {
-        // both flags are inverted, but their names make more sense like this
+        // both flags are inverted here, but their names make more sense like this
         let record = Record::read(&mut input, &ifs)?
             .process(!args.allow_empty_fields, !args.dont_trim_fields);
         record.write(&mut lock, &ofs)?;
