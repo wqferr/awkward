@@ -43,15 +43,18 @@ impl Record {
     }
 
     pub fn process(&mut self, skip_blanks: bool, trim: bool) {
-        let mut processed: Box<dyn Iterator<Item=String>> = Box::new(self.fields.into_iter());
+        let mut processed: Box<dyn Iterator<Item=&str>> = Box::new(
+            self.fields.iter()
+                .map(|s| s.as_str())
+        );
         if skip_blanks {
-            processed = Box::new(processed.filter(|x| !x.is_empty()));
+            processed = Box::new(processed.filter(|&x| !x.is_empty()));
         }
         if trim {
-            processed = Box::new(processed.map(|s| s.trim().to_owned()));
+            processed = Box::new(processed.map(|s| s.trim()));
         }
 
-        self.fields = processed.collect();
+        self.fields = processed.map(|s| s.to_owned()).collect();
     }
 
     pub fn nth_str(&self, n: usize) -> Result<&str> {
