@@ -6,12 +6,16 @@ use std::io::BufReader;
 use std::io::Write;
 use std::io::stdin;
 use std::io::stdout;
+use grammar::parser;
 
 use clap::Parser;
 use clap::ValueHint;
 
 use anyhow;
 use record::Record;
+
+mod grammar;
+mod value;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]

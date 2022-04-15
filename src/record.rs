@@ -1,6 +1,9 @@
 use std::io::{BufRead, Write};
 use thiserror::Error;
 
+use super::value::{Value, Number};
+// use either::Either;
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("field could not be parsed as a number")]
@@ -11,6 +14,9 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+// pub type Value = Either<Number, String>;
+// pub type Float = f64;
+// pub type Int = i64;
 
 #[derive(Debug, Clone)]
 pub struct Record {
@@ -18,6 +24,10 @@ pub struct Record {
 }
 
 impl Record {
+    pub fn from(fields: Vec<String>) -> Self {
+        Self { fields }
+    }
+
     pub fn read(source: &mut dyn BufRead, field_sep: &str) -> anyhow::Result<Self> {
         let mut buf = String::with_capacity(500);
         source.read_line(&mut buf)?;
@@ -29,8 +39,8 @@ impl Record {
         Ok(Self { fields })
     }
 
-    pub fn write(self, sink: &mut dyn Write, field_sep: &str) -> anyhow::Result<()> {
-        let mut fields = self.fields.into_iter();
+    pub fn write(&self, sink: &mut dyn Write, field_sep: &str) -> anyhow::Result<()> {
+        let mut fields = self.fields.iter();
         if let Some(field) = fields.next() {
             sink.write(field.as_bytes())?;
 
@@ -58,27 +68,34 @@ impl Record {
     }
 
     pub fn nth_str(&self, n: usize) -> Result<&str> {
-        if n > self.fields.len() {
+        if n == 0 || n > self.fields.len() {
             return Err(Error::NoSuchField(n));
         }
-        Ok(self.fields[n].as_str())
+        Ok(self.fields[n-1].as_str())
     }
 
-    pub fn nth_int(&self, n: usize) -> Result<i32> {
-        if n > self.fields.len() {
+    pub fn nth_num(&self, n: usize) -> Result<Number> {
+        if n == 0 || n > self.fields.len() {
             return Err(Error::NoSuchField(n));
         }
-        self.fields[n].parse::<i32>()
-            .map_err(|_| Error::NumberParseFailure)
+        self.fields[n-1].parse::<Number>().map_err(|_| Error::NumberParseFailure)
     }
 
-    pub fn nth_float(&self, n: usize) -> Result<f32> {
-        if n > self.fields.len() {
-            return Err(Error::NoSuchField(n));
-        }
-        self.fields[n].parse::<f32>()
-            .map_err(|_| Error::NumberParseFailure)
-    }
+    // pub fn nth_int(&self, n: usize) -> Result<Int> {
+    //     if n == 0 || n > self.fields.len() {
+    //         return Err(Error::NoSuchField(n));
+    //     }
+    //     self.fields[n-1].parse::<Int>()
+    //         .map_err(|_| Error::NumberParseFailure)
+    // }
+
+    // pub fn nth_float(&self, n: usize) -> Result<Float> {
+    //     if n == 0 || n > self.fields.len() {
+    //         return Err(Error::NoSuchField(n));
+    //     }
+    //     self.fields[n-1].parse::<Float>()
+    //         .map_err(|_| Error::NumberParseFailure)
+    // }
 
     pub fn len(&self) -> usize {
         self.fields.len()
