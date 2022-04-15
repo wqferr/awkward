@@ -1,4 +1,5 @@
 use chumsky::prelude::*;
+use std::collections::HashMap;
 
 use super::record::Record;
 use super::value::{Value, Number};
@@ -6,7 +7,7 @@ use super::value::{Value, Number};
 pub struct EvaluationContext<'a> {
     current_record: &'a Record,
     ofs: &'a str,
-    // field_names: Vec<String>
+    field_names: HashMap<String, usize>
 }
 
 #[derive(Debug, PartialEq)]
@@ -15,6 +16,10 @@ pub enum Expr {
     StrVar(usize),
     NumVar(usize),
     // BoolVar?
+
+    StrNamedVar(String),
+    NumNamedVar(String),
+    // BoolNamedVar?
 
     StrLiteral(String),
     NumLiteral(Number),
@@ -53,6 +58,15 @@ pub fn eval(expr: &Expr, ctx: &EvaluationContext) -> Value {
             }
         },
         NumVar(idx) => Value::Num(ctx.current_record.nth_num(*idx).unwrap().to_owned()),
+
+        StrNamedVar(name) => {
+            let idx = ctx.field_names[name];
+            Value::Str(ctx.current_record.nth_str(idx).unwrap().to_owned())
+        }
+        NumNamedVar(name) => {
+            let idx = ctx.field_names[name];
+            Value::Num(ctx.current_record.nth_num(idx).unwrap())
+        }
 
         StrLiteral(s) => Value::Str(s.clone()),
         NumLiteral(n) => Value::Num(n.clone()),
@@ -109,13 +123,34 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
                 Expr::NumLiteral([s1, s2].join(".").parse().unwrap())
             })
             .padded();
-    
+        
+        let var_start = just('n')
+            .or_not()
+            .then_ignore(just('@'));
+
         let atom = num
             .or(expr.delimited_by(just('('), just(')')))
             .or(
-                just('@')
-                .ignore_then(text::int(10))
-                .map(|x| Expr::StrVar(x.parse().unwrap()))
+                var_start.clone()
+                .then(text::int(10))
+                .map(|(t, x)| {
+                    if t.is_some() {
+                        Expr::NumVar(x.parse().unwrap())
+                    } else {
+                        Expr::StrVar(x.parse().unwrap())
+                    }
+                })
+            )
+            .or(
+                var_start.clone()
+                .then(text::ident())
+                .map(|(t, name)| {
+                    if t.is_some() {
+                        Expr::NumNamedVar(name)
+                    } else {
+                        Expr::StrNamedVar(name)
+                    }
+                })
             );
     
         let op = |c| just(c).padded();
@@ -188,13 +223,18 @@ mod test {
     fn simple_eval(expr: &str) -> Value {
         let p = parser();
         let r = Record::from(vec![
-            "first".to_owned(),
-            "second".to_owned(),
-            "third".to_owned()
+            "abc".to_owned(),
+            "2".to_owned(),
+            "lol".to_owned()
         ]);
         let ctx = EvaluationContext {
             current_record: &r,
-            ofs: ","
+            ofs: ",",
+            field_names: HashMap::from([
+                ("first".to_owned(), 1),
+                ("second".to_owned(), 2),
+                ("third".to_owned(), 3)
+            ])
         };
         let res = p.parse(expr);
         assert!(res.is_ok());
@@ -217,14 +257,21 @@ mod test {
     fn test_boolean() {
         assert_eq!(simple_eval("1 < 2"), Value::Bool(true));
         assert_eq!(simple_eval("1 + 1 == 2"), Value::Bool(true));
+        assert_eq!(simple_eval("0.5 + 2 + 1.74 == 4.24"), Value::Bool(true));
     }
 
     #[test]
     fn test_fields() {
-        assert_eq!(simple_eval("@1"), Value::Str("first".to_owned()));
-        assert_eq!(simple_eval("@2"), Value::Str("second".to_owned()));
-        assert_eq!(simple_eval("@3"), Value::Str("third".to_owned()));
+        assert_eq!(simple_eval("@1"), Value::Str("abc".to_owned()));
+        assert_eq!(simple_eval("@2"), Value::Str("2".to_owned()));
+        assert_eq!(simple_eval("n@2"), Value::Num(2.into()));
+        assert_eq!(simple_eval("@3"), Value::Str("lol".to_owned()));
 
-        assert_eq!(simple_eval("@0"), Value::Str("first,second,third".to_owned()));
+        assert_eq!(simple_eval("@first"), Value::Str("abc".to_owned()));
+        assert_eq!(simple_eval("@second"), Value::Str("2".to_owned()));
+        assert_eq!(simple_eval("n@second"), Value::Num(2.into()));
+        assert_eq!(simple_eval("@third"), Value::Str("lol".to_owned()));
+
+        assert_eq!(simple_eval("@0"), Value::Str("abc,2,lol".to_owned()));
     }
 }
