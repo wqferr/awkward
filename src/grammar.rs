@@ -5,7 +5,8 @@ use super::value::{Value, Number};
 
 pub struct EvaluationContext<'a> {
     current_record: &'a Record,
-    ofs: &'a str
+    ofs: &'a str,
+    // field_names: Vec<String>
 }
 
 #[derive(Debug, PartialEq)]
@@ -42,19 +43,17 @@ const STRING_ARITHMETIC_PANIC: &str = "Cannot perform arithmetic on strings";
 pub fn eval(expr: &Expr, ctx: &EvaluationContext) -> Value {
     use Expr::*;
     match expr {
-        // TODO @0 expands to whole thing
         StrVar(idx) => {
             if *idx == 0 {
                 let mut buf = Box::new(Vec::new());
-                ctx.current_record.write(&mut buf, ctx.ofs);
-                String::from_utf8(buf)
+                ctx.current_record.write(&mut buf, ctx.ofs).unwrap();
+                Value::Str(String::from_utf8(*buf).unwrap())
             } else {
                 Value::Str(ctx.current_record.nth_str(*idx).unwrap_or("").to_owned())
             }
         },
         NumVar(idx) => Value::Num(ctx.current_record.nth_num(*idx).unwrap().to_owned()),
 
-        // TODO vars
         StrLiteral(s) => Value::Str(s.clone()),
         NumLiteral(n) => Value::Num(n.clone()),
 
@@ -112,7 +111,12 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
             .padded();
     
         let atom = num
-            .or(expr.delimited_by(just('('), just(')')));
+            .or(expr.delimited_by(just('('), just(')')))
+            .or(
+                just('@')
+                .ignore_then(text::int(10))
+                .map(|x| Expr::StrVar(x.parse().unwrap()))
+            );
     
         let op = |c| just(c).padded();
     
@@ -217,6 +221,10 @@ mod test {
 
     #[test]
     fn test_fields() {
-        // assert_eq!(simple_eval())
+        assert_eq!(simple_eval("@1"), Value::Str("first".to_owned()));
+        assert_eq!(simple_eval("@2"), Value::Str("second".to_owned()));
+        assert_eq!(simple_eval("@3"), Value::Str("third".to_owned()));
+
+        assert_eq!(simple_eval("@0"), Value::Str("first,second,third".to_owned()));
     }
 }
