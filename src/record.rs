@@ -1,8 +1,7 @@
 use std::io::{BufRead, Write};
 use thiserror::Error;
 
-use super::value::{Value, Number};
-// use either::Either;
+use super::value::Number;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -14,9 +13,6 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
-// pub type Value = Either<Number, String>;
-// pub type Float = f64;
-// pub type Int = i64;
 
 #[derive(Debug, Clone)]
 pub struct Record {
@@ -67,35 +63,30 @@ impl Record {
         self.fields = processed.map(|s| s.to_owned()).collect();
     }
 
+    pub fn set(&mut self, n: usize, s: String) {
+        for _ in self.fields.len()..=n {
+            self.fields.push("".to_owned());
+        }
+        self.fields[n-1] = s;
+    }
+
+    pub fn has_field(&self, idx: usize) -> bool {
+        idx > 0 && idx <= self.fields.len()
+    }
+
     pub fn nth_str(&self, n: usize) -> Result<&str> {
-        if n == 0 || n > self.fields.len() {
+        if !self.has_field(n) {
             return Err(Error::NoSuchField(n));
         }
         Ok(self.fields[n-1].as_str())
     }
 
     pub fn nth_num(&self, n: usize) -> Result<Number> {
-        if n == 0 || n > self.fields.len() {
+        if !self.has_field(n) {
             return Err(Error::NoSuchField(n));
         }
         self.fields[n-1].parse::<Number>().map_err(|_| Error::NumberParseFailure)
     }
-
-    // pub fn nth_int(&self, n: usize) -> Result<Int> {
-    //     if n == 0 || n > self.fields.len() {
-    //         return Err(Error::NoSuchField(n));
-    //     }
-    //     self.fields[n-1].parse::<Int>()
-    //         .map_err(|_| Error::NumberParseFailure)
-    // }
-
-    // pub fn nth_float(&self, n: usize) -> Result<Float> {
-    //     if n == 0 || n > self.fields.len() {
-    //         return Err(Error::NoSuchField(n));
-    //     }
-    //     self.fields[n-1].parse::<Float>()
-    //         .map_err(|_| Error::NumberParseFailure)
-    // }
 
     pub fn len(&self) -> usize {
         self.fields.len()

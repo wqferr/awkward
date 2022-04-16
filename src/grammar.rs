@@ -31,6 +31,7 @@ pub enum Expr {
     Mul(Box<Expr>, Box<Expr>),
     Div(Box<Expr>, Box<Expr>),
     Mod(Box<Expr>, Box<Expr>),
+    Concat(Box<Expr>, Box<Expr>),
 
     Eq(Box<Expr>, Box<Expr>),
     Ineq(Box<Expr>, Box<Expr>),
@@ -42,8 +43,6 @@ pub enum Expr {
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
 }
-
-const STRING_ARITHMETIC_PANIC: &str = "Cannot perform arithmetic on strings";
 
 pub fn eval(expr: &Expr, ctx: &EvaluationContext) -> Value {
     use Expr::*;
@@ -77,6 +76,13 @@ pub fn eval(expr: &Expr, ctx: &EvaluationContext) -> Value {
         Mul(x, y) => Value::Num(eval_num(x, ctx) * eval_num(y, ctx)),
         Div(x, y) => Value::Num(eval_num(x, ctx) / eval_num(y, ctx)),
         Mod(x, y) => Value::Num(eval_num(x, ctx) % eval_num(y, ctx)),
+        Concat(x, y) => {
+            let mut s1 = eval_str(x, ctx);
+            let s2 = eval_str(y, ctx);
+            s1.push_str(s2.as_str());
+
+            Value::Str(s1)
+        },
 
         Eq(x, y) => Value::Bool(eval(x, ctx) == eval(y, ctx)),
         Ineq(x, y) => Value::Bool(eval(x, ctx) != eval(y, ctx)),
@@ -108,10 +114,19 @@ pub fn eval_bool(expr: &Expr, ctx: &EvaluationContext) -> bool {
     }
 }
 
+pub fn eval_str(expr: &Expr, ctx: &EvaluationContext) -> String {
+    match eval(expr, ctx) {
+        Value::Str(s) => s,
+        Value::Bool(b) => if b {"true".to_owned()} else {"false".to_owned()},
+        Value::Num(x) => format!("{}", x)
+    }
+}
+
 pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
     // This grammar was adapted from Chumsky's tutorial
 
     recursive(|expr| {
+        // number literal
         let num = text::int(10)
             .then(
                 just('.')
@@ -123,11 +138,35 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
                 Expr::NumLiteral([s1, s2].join(".").parse().unwrap())
             })
             .padded();
+
+        let escape = just('\\').ignore_then(
+            just('\\')
+            .or(just('/'))
+            .or(just('"'))
+            .or(just('\''))
+            .or(just('b').to('\x08'))
+            .or(just('f').to('\x0C'))
+            .or(just('n').to('\n'))
+            .or(just('r').to('\r'))
+            .or(just('t').to('\t')));
+
+        let string_dq = just('"')
+            .ignore_then(filter(|c| *c != '\\' && *c != '"').or(escape).repeated())
+            .then_ignore(just('"'))
+            .map(|v| Expr::StrLiteral(v.into_iter().collect::<String>()));
+
+        let string_sq = just('\'')
+            .ignore_then(filter(|c| *c != '\\' && *c != '\'').or(escape).repeated())
+            .then_ignore(just('\''))
+            .map(|v| Expr::StrLiteral(v.into_iter().collect::<String>()));
         
+        // starting characters for variable referencing
+        // i.e., either n@ or just @
         let var_start = just('n')
             .or_not()
             .then_ignore(just('@'));
 
+        // single term for arithmetic expressions
         let atom = num
             .or(expr.delimited_by(just('('), just(')')))
             .or(
@@ -151,16 +190,24 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
                         Expr::StrNamedVar(name)
                     }
                 })
-            );
+            )
+            .or(string_dq)
+            .or(string_sq)
+            .padded();
     
+        // operators with a single char
         let op = |c| just(c).padded();
     
+        // operators with 2 chars
+        let double_char_op = |c1, c2| just(c1).then(just(c2)).padded();
+    
+        // unary minus
         let unary = op('-')
             .repeated()
             .then(atom)
             .foldr(|_op, rhs| Expr::Neg(Box::new(rhs)));
     
-        // TODO remainder
+        // product / division / mod
         let product = unary.clone()
             .then(
                 op('*').to(Expr::Mul as fn(_, _) -> _)
@@ -171,17 +218,18 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
             )
             .foldl(|lhs, (op, rhs)| op(Box::new(lhs), Box::new(rhs)));
     
+        // add / subtract
         let sum = product.clone()
             .then(
                 op('+').to(Expr::Add as fn(_, _) -> _)
                 .or(op('-').to(Expr::Sub as fn(_, _) -> _))
+                .or(double_char_op('.', '.').to(Expr::Concat as fn(_, _) -> _))
                 .then(product)
                 .repeated()
             )
             .foldl(|lhs, (op, rhs)| op(Box::new(lhs), Box::new(rhs)));
-    
-        let double_char_op = |c1, c2| just(c1).then(just(c2)).padded();
 
+        // relationals
         let comparison = sum.clone()
             .then(
                 op('>').to(Expr::Greater as fn(_, _) -> _)
@@ -195,6 +243,7 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
             )
             .foldl(|lhs, (op, rhs)| op(Box::new(lhs), Box::new(rhs)));
 
+        // boolean and
         let and = comparison.clone()
             .then(
                 double_char_op('&', '&')
@@ -203,6 +252,7 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
             )
             .foldl(|lhs, (_op, rhs)| Expr::And(Box::new(lhs), Box::new(rhs)));
 
+        // boolean or
         let or = and.clone()
             .then(
                 double_char_op('|', '|')
@@ -255,7 +305,7 @@ mod test {
 
     #[test]
     fn test_boolean() {
-        assert_eq!(simple_eval("1 < 2"), Value::Bool(true));
+        assert_eq!(simple_eval("1 > 2"), Value::Bool(false));
         assert_eq!(simple_eval("1 + 1 == 2"), Value::Bool(true));
         assert_eq!(simple_eval("0.5 + 2 + 1.74 == 4.24"), Value::Bool(true));
     }
@@ -273,5 +323,21 @@ mod test {
         assert_eq!(simple_eval("@third"), Value::Str("lol".to_owned()));
 
         assert_eq!(simple_eval("@0"), Value::Str("abc,2,lol".to_owned()));
+    }
+
+    #[test]
+    fn test_padding() {
+        assert_eq!(simple_eval(" ( n@2+       1 )  /     2"), Value::Num(Number::from_num(1.5)));
+    }
+
+    #[test]
+    fn test_str_literals() {
+        assert_eq!(simple_eval("'th\"is is \\'a string'"), Value::Str("th\"is is 'a string".to_owned()));
+        assert_eq!(simple_eval("\"double \\\"quote' test\""), Value::Str("double \"quote' test".to_owned()));
+    }
+
+    #[test]
+    fn test_str_concatenation() {
+        assert_eq!(simple_eval("'this' .. (1>2)..'is'.. 'a' ..1 .. 'test'"), Value::Str("thisfalseisa1test".to_owned()));
     }
 }
