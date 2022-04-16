@@ -1,7 +1,7 @@
 use std::io::{BufRead, Write};
 use thiserror::Error;
 
-use super::value::Number;
+use super::types::Number;
 
 #[derive(Debug, Error)]
 pub enum Error {

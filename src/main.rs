@@ -15,7 +15,7 @@ use anyhow;
 use record::Record;
 
 mod grammar;
-mod value;
+mod types;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]

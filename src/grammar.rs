@@ -2,12 +2,14 @@ use chumsky::prelude::*;
 use std::collections::HashMap;
 
 use super::record::Record;
-use super::value::{Value, Number};
+use super::types::{Value, Number, BuiltinFunction};
 
 pub struct EvaluationContext<'a> {
     current_record: &'a Record,
     ofs: &'a str,
-    field_names: HashMap<String, usize>
+    field_names: HashMap<String, usize>,
+
+    functions: HashMap<String, BuiltinFunction>
 }
 
 #[derive(Debug, PartialEq)]
@@ -24,6 +26,8 @@ pub enum Expr {
     StrLiteral(String),
     NumLiteral(Number),
     // BoolLiteral?
+
+    FnCall(String, Vec<Expr>),
 
     Neg(Box<Expr>),
     Add(Box<Expr>, Box<Expr>),
@@ -93,8 +97,11 @@ pub fn eval(expr: &Expr, ctx: &EvaluationContext) -> Value {
 
         And(x, y) => Value::Bool(eval_bool(x, ctx) && eval_bool(y, ctx)),
         Or(x, y) => Value::Bool(eval_bool(x, ctx) || eval_bool(y, ctx)),
-
-        _ => panic!("Unknown token!")
+        FnCall(fname, args) => {
+            let f = &ctx.functions[fname];
+            let args = args.iter().map(|e| eval(e, ctx)).collect();
+            f(args)
+        },
     }
 }
 
@@ -139,23 +146,35 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
             })
             .padded();
 
-        let escape = just('\\').ignore_then(
-            just('\\')
-            .or(just('"'))
-            .or(just('\''))
-            .or(just('n').to('\n'))
-            .or(just('r').to('\r'))
-            .or(just('t').to('\t')));
+        // escaped character
+        let escape =
+            just('\\').ignore_then(
+                just('\\')
+                .or(just('"'))
+                .or(just('\''))
+                .or(just('n').to('\n'))
+                .or(just('r').to('\r'))
+                .or(just('t').to('\t')));
 
-        let quoted_str = |delim: char|
-            just(delim)
-                .ignore_then(filter(move |c| *c != '\\' && *c != delim).or(escape).repeated())
-                .then_ignore(just(delim))
-                .map(|v| Expr::StrLiteral(v.into_iter().collect::<String>()));
+        let quoted_str =
+            |delim: char|
+                just(delim)
+                    .ignore_then(filter(move |c| *c != '\\' && *c != delim).or(escape).repeated())
+                    .then_ignore(just(delim))
+                    .map(|v| Expr::StrLiteral(v.into_iter().collect::<String>()));
 
         let string_dq = quoted_str('"');
         let string_sq = quoted_str('\'');
         
+        let call =
+            text::ident().then(
+                expr.clone()
+                    .separated_by(just(','))
+                    .allow_trailing()
+                    .delimited_by(just('('), just(')'))
+            )
+            .map(|(f, args)| Expr::FnCall(f, args));
+
         // starting characters for variable referencing
         // i.e., either n@ or just @
         let var_start = just('n')
@@ -187,6 +206,7 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
                     }
                 })
             )
+            .or(call)
             .or(string_dq)
             .or(string_sq)
             .padded();
@@ -273,6 +293,14 @@ mod test {
             "2".to_owned(),
             "lol".to_owned()
         ]);
+        let c = |args: Vec<Value>| {
+            if let Value::Num(x) = args[0] {
+                Value::Num(2*x)
+            } else {
+                // FIXME maybe make builtins return a result instead of straight up panicking
+                panic!("expected number, found {}", args[0]);
+            }
+        };
         let ctx = EvaluationContext {
             current_record: &r,
             ofs: ",",
@@ -280,8 +308,12 @@ mod test {
                 ("first".to_owned(), 1),
                 ("second".to_owned(), 2),
                 ("third".to_owned(), 3)
+            ]),
+            functions: HashMap::from([
+                ("double".to_owned(), Box::new(c) as BuiltinFunction)
             ])
         };
+
         let res = p.parse(expr);
         assert!(res.is_ok());
         eval(&res.unwrap(), &ctx)
@@ -335,5 +367,10 @@ mod test {
     #[test]
     fn test_str_concatenation() {
         assert_eq!(simple_eval("'this' .. (1>2)..'is'.. (\"a\" ..1) .. 'test'"), Value::Str("thisfalseisa1test".to_owned()));
+    }
+
+    #[test]
+    fn test_function_calls() {
+        assert_eq!(simple_eval("double(4)"), Value::Num(8.into()));
     }
 }
