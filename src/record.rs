@@ -16,23 +16,26 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone)]
 pub struct Record {
+    original_string: String,
     fields: Vec<String>
 }
 
 impl Record {
-    pub fn from(fields: Vec<String>) -> Self {
-        Self { fields }
+    pub fn from(s: String, field_sep: &str) -> Self {
+        let fields = s
+            .split(field_sep)
+            .map(|x| x.to_owned())
+            .collect();
+        Self {
+            original_string: s,
+            fields: fields
+        }
     }
 
     pub fn read(source: &mut dyn BufRead, field_sep: &str) -> anyhow::Result<Self> {
         let mut buf = String::with_capacity(500);
         source.read_line(&mut buf)?;
-        
-        let fields = buf
-            .split(field_sep)
-            .map(|x| x.to_owned())
-            .collect();
-        Ok(Self { fields })
+        Ok(Self::from(buf, field_sep))
     }
 
     pub fn write(&self, sink: &mut dyn Write, field_sep: &str) -> anyhow::Result<()> {
@@ -86,6 +89,10 @@ impl Record {
             return Err(Error::NoSuchField(n));
         }
         self.fields[n-1].parse::<Number>().map_err(|_| Error::NumberParseFailure)
+    }
+
+    pub fn original_string(&self) -> &String {
+        &self.original_string
     }
 
     pub fn len(&self) -> usize {

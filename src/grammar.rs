@@ -1,5 +1,6 @@
 use chumsky::prelude::*;
 use std::collections::HashMap;
+use regex::Regex;
 
 use super::record::Record;
 use super::types::{Value, Number, BuiltinFunction};
@@ -9,10 +10,13 @@ pub struct EvaluationContext<'a> {
     ofs: &'a str,
     field_names: HashMap<String, usize>,
 
-    functions: HashMap<String, BuiltinFunction>
+    functions: HashMap<String, BuiltinFunction>,
+
+    start_of_parsing: bool,
+    end_of_parsing: bool
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
     // These reference field index with their values
     StrVar(usize),
@@ -36,6 +40,7 @@ pub enum Expr {
     Div(Box<Expr>, Box<Expr>),
     Mod(Box<Expr>, Box<Expr>),
     Concat(Box<Expr>, Box<Expr>),
+    ConcatWSep(Box<Expr>, Box<Expr>),
 
     Eq(Box<Expr>, Box<Expr>),
     Ineq(Box<Expr>, Box<Expr>),
@@ -46,6 +51,27 @@ pub enum Expr {
 
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
+    Not(Box<Expr>),
+
+    Pat(Pattern)
+}
+
+#[derive(Clone, Debug)]
+pub enum Pattern {
+    Start,
+    End,
+    RegularExpression(Regex)
+}
+
+impl PartialEq for Pattern {
+    fn eq(&self, other: &Self) -> bool {
+        use Pattern::*;
+        match (self, other) {
+            (Start, Start) => true,
+            (End, End) => true,
+            _ => false
+        }
+    }
 }
 
 pub fn eval(expr: &Expr, ctx: &EvaluationContext) -> Value {
@@ -87,6 +113,14 @@ pub fn eval(expr: &Expr, ctx: &EvaluationContext) -> Value {
 
             Value::Str(s1)
         },
+        ConcatWSep(x, y) => {
+            let mut s1 = eval_str(x, ctx);
+            let s2 = eval_str(y, ctx);
+            s1.push_str(ctx.ofs);
+            s1.push_str(s2.as_str());
+
+            Value::Str(s1)
+        },
 
         Eq(x, y) => Value::Bool(eval(x, ctx) == eval(y, ctx)),
         Ineq(x, y) => Value::Bool(eval(x, ctx) != eval(y, ctx)),
@@ -97,11 +131,23 @@ pub fn eval(expr: &Expr, ctx: &EvaluationContext) -> Value {
 
         And(x, y) => Value::Bool(eval_bool(x, ctx) && eval_bool(y, ctx)),
         Or(x, y) => Value::Bool(eval_bool(x, ctx) || eval_bool(y, ctx)),
+        Not(x) => Value::Bool(!eval_bool(x, ctx)),
         FnCall(fname, args) => {
             let f = &ctx.functions[fname];
             let args = args.iter().map(|e| eval(e, ctx)).collect();
             f(args)
         },
+
+        Pat(p) => {
+            match p {
+                Pattern::Start => Value::Bool(ctx.start_of_parsing),
+                Pattern::End => Value::Bool(ctx.end_of_parsing),
+                Pattern::RegularExpression(re) =>
+                    Value::Bool(
+                        re.find(ctx.current_record.original_string()).is_some()
+                    )
+            }
+        }
     }
 }
 
@@ -129,9 +175,7 @@ pub fn eval_str(expr: &Expr, ctx: &EvaluationContext) -> String {
     }
 }
 
-pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
-    // This grammar was adapted from Chumsky's tutorial
-
+fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> {
     recursive(|expr| {
         // number literal
         let num = text::int(10)
@@ -149,12 +193,16 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
         // escaped character
         let escape =
             just('\\').ignore_then(
-                just('\\')
-                .or(just('"'))
-                .or(just('\''))
-                .or(just('n').to('\n'))
-                .or(just('r').to('\r'))
-                .or(just('t').to('\t')));
+                choice((
+                    just('\\'),
+                    just('/'),
+                    just('"'),
+                    just('\''),
+                    just('n').to('\n'),
+                    just('r').to('\r'),
+                    just('t').to('\t')
+                ))
+            );
 
         let quoted_str =
             |delim: char|
@@ -177,39 +225,39 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
 
         // starting characters for variable referencing
         // i.e., either n@ or just @
-        let var_start = just('n')
+        let var_start =
+            just('n')
             .or_not()
             .then_ignore(just('@'));
 
         // single term for arithmetic expressions
-        let atom = num
-            .or(expr.delimited_by(just('('), just(')')))
-            .or(
+        let atom =
+            choice((
+                num,
+                expr.delimited_by(just('('), just(')')),
                 var_start.clone()
-                .then(text::int(10))
-                .map(|(t, x)| {
-                    if t.is_some() {
-                        Expr::NumVar(x.parse().unwrap())
-                    } else {
-                        Expr::StrVar(x.parse().unwrap())
-                    }
-                })
-            )
-            .or(
+                    .then(text::int(10))
+                    .map(|(t, x)| {
+                        if t.is_some() {
+                            Expr::NumVar(x.parse().unwrap())
+                        } else {
+                            Expr::StrVar(x.parse().unwrap())
+                        }
+                    }),
                 var_start.clone()
-                .then(text::ident())
-                .map(|(t, name)| {
-                    if t.is_some() {
-                        Expr::NumNamedVar(name)
-                    } else {
-                        Expr::StrNamedVar(name)
-                    }
-                })
-            )
-            .or(call)
-            .or(string_dq)
-            .or(string_sq)
-            .padded();
+                    .then(text::ident())
+                    .map(|(t, name)| {
+                        if t.is_some() {
+                            Expr::NumNamedVar(name)
+                        } else {
+                            Expr::StrNamedVar(name)
+                        }
+                    }),
+                call,
+                string_dq,
+                string_sq,
+                // pattern,
+            )).padded();
     
         // operators with a single char
         let op = |c| just(c).padded();
@@ -218,17 +266,21 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
         let double_char_op = |c1, c2| just(c1).then(just(c2)).padded();
     
         // unary minus
-        let unary = op('-')
+        let unary =
+            op('-').to(Expr::Neg as fn(_) -> _)
+            .or(op('!').to(Expr::Not as fn(_) -> _))
             .repeated()
             .then(atom)
-            .foldr(|_op, rhs| Expr::Neg(Box::new(rhs)));
+            .foldr(|op, rhs| op(Box::new(rhs)));
     
         // product / division / mod
         let product = unary.clone()
             .then(
-                op('*').to(Expr::Mul as fn(_, _) -> _)
-                .or(op('/').to(Expr::Div as fn(_, _) -> _))
-                .or(op('%').to(Expr::Mod as fn(_, _) -> _))
+                choice((
+                    op('*').to(Expr::Mul as fn(_, _) -> _),
+                    op('/').to(Expr::Div as fn(_, _) -> _),
+                    op('%').to(Expr::Mod as fn(_, _) -> _)
+                ))
                 .then(unary)
                 .repeated()
             )
@@ -237,9 +289,12 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
         // add / subtract
         let sum = product.clone()
             .then(
-                op('+').to(Expr::Add as fn(_, _) -> _)
-                .or(op('-').to(Expr::Sub as fn(_, _) -> _))
-                .or(double_char_op('.', '.').to(Expr::Concat as fn(_, _) -> _))
+                choice((
+                    op('+').to(Expr::Add as fn(_, _) -> _),
+                    op('-').to(Expr::Sub as fn(_, _) -> _),
+                    double_char_op('.', '.').to(Expr::ConcatWSep as fn(_, _) -> _),
+                    op('.').to(Expr::Concat as fn(_, _) -> _)
+                ))
                 .then(product)
                 .repeated()
             )
@@ -248,12 +303,14 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
         // relationals
         let comparison = sum.clone()
             .then(
-                op('>').to(Expr::Greater as fn(_, _) -> _)
-                .or(double_char_op('>', '=').to(Expr::GreaterEq as fn(_, _) -> _))
-                .or(op('<').to(Expr::Lesser as fn(_, _) -> _))
-                .or(double_char_op('<', '=').to(Expr::LesserEq as fn(_, _) -> _))
-                .or(double_char_op('=', '=').to(Expr::Eq as fn(_, _) -> _))
-                .or(double_char_op('!', '=').to(Expr::Ineq as fn(_, _) -> _))
+                choice((
+                    op('>').to(Expr::Greater as fn(_, _) -> _),
+                    double_char_op('>', '=').to(Expr::GreaterEq as fn(_, _) -> _),
+                    op('<').to(Expr::Lesser as fn(_, _) -> _),
+                    double_char_op('<', '=').to(Expr::LesserEq as fn(_, _) -> _),
+                    double_char_op('=', '=').to(Expr::Eq as fn(_, _) -> _),
+                    double_char_op('!', '=').to(Expr::Ineq as fn(_, _) -> _),
+                ))
                 .then(sum)
                 .repeated()
             )
@@ -279,7 +336,18 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
 
         or
     })
-    .then_ignore(end())
+}
+
+pub fn parser() -> impl Parser<char, Expr, Error=Simple<char>> {
+    // This grammar was adapted from Chumsky's tutorial
+
+    let expr = expr_parser();
+    // let pattern = pattern_parser();
+
+    let stmt = expr;
+    let stmt_list = stmt;
+
+    stmt_list.then_ignore(end())
 }
 
 #[cfg(test)]
@@ -288,11 +356,7 @@ mod test {
 
     fn simple_eval(expr: &str) -> Value {
         let p = parser();
-        let r = Record::from(vec![
-            "abc".to_owned(),
-            "2".to_owned(),
-            "lol".to_owned()
-        ]);
+        let r = Record::from("abc,2,lol".to_owned(), ",");
         let c = |args: Vec<Value>| {
             if let Value::Num(x) = args[0] {
                 Value::Num(2*x)
@@ -311,7 +375,9 @@ mod test {
             ]),
             functions: HashMap::from([
                 ("double".to_owned(), Box::new(c) as BuiltinFunction)
-            ])
+            ]),
+            start_of_parsing: false,
+            end_of_parsing: false
         };
 
         let res = p.parse(expr);
@@ -334,6 +400,7 @@ mod test {
     #[test]
     fn test_boolean() {
         assert_eq!(simple_eval("1 > 2"), Value::Bool(false));
+        assert_eq!(simple_eval("!(1 > 2)"), Value::Bool(true));
         assert_eq!(simple_eval("1 + 1 == 2"), Value::Bool(true));
         assert_eq!(simple_eval("0.5 + 2 + 1.74 == 4.24"), Value::Bool(true));
     }
@@ -360,13 +427,26 @@ mod test {
 
     #[test]
     fn test_str_literals() {
-        assert_eq!(simple_eval("'th\"is is \\'a string'"), Value::Str("th\"is is 'a string".to_owned()));
-        assert_eq!(simple_eval("\"double \\\"quote' test\""), Value::Str("double \"quote' test".to_owned()));
+        assert_eq!(
+            simple_eval("'th\"is is \\'a string'"),
+            Value::Str("th\"is is 'a string".to_owned())
+        );
+        assert_eq!(
+            simple_eval("\"double \\\"quote' test\""),
+            Value::Str("double \"quote' test".to_owned())
+        );
     }
 
     #[test]
     fn test_str_concatenation() {
-        assert_eq!(simple_eval("'this' .. (1>2)..'is'.. (\"a\" ..1) .. 'test'"), Value::Str("thisfalseisa1test".to_owned()));
+        assert_eq!(
+            simple_eval("'this' . (1.5>2).'is'. (\"a\" .1) . 'test'"),
+            Value::Str("thisfalseisa1test".to_owned())
+        );
+        assert_eq!(
+            simple_eval("'this' .. ('is'.. 'another') . 'test'"),
+            Value::Str("this,is,anothertest".to_owned())
+        );
     }
 
     #[test]
