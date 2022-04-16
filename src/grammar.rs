@@ -141,24 +141,20 @@ pub fn parser() -> impl Parser<char, Expr, Error = Simple<char>> {
 
         let escape = just('\\').ignore_then(
             just('\\')
-            .or(just('/'))
             .or(just('"'))
             .or(just('\''))
-            .or(just('b').to('\x08'))
-            .or(just('f').to('\x0C'))
             .or(just('n').to('\n'))
             .or(just('r').to('\r'))
             .or(just('t').to('\t')));
 
-        let string_dq = just('"')
-            .ignore_then(filter(|c| *c != '\\' && *c != '"').or(escape).repeated())
-            .then_ignore(just('"'))
-            .map(|v| Expr::StrLiteral(v.into_iter().collect::<String>()));
+        let quoted_str = |delim: char|
+            just(delim)
+                .ignore_then(filter(move |c| *c != '\\' && *c != delim).or(escape).repeated())
+                .then_ignore(just(delim))
+                .map(|v| Expr::StrLiteral(v.into_iter().collect::<String>()));
 
-        let string_sq = just('\'')
-            .ignore_then(filter(|c| *c != '\\' && *c != '\'').or(escape).repeated())
-            .then_ignore(just('\''))
-            .map(|v| Expr::StrLiteral(v.into_iter().collect::<String>()));
+        let string_dq = quoted_str('"');
+        let string_sq = quoted_str('\'');
         
         // starting characters for variable referencing
         // i.e., either n@ or just @
@@ -338,6 +334,6 @@ mod test {
 
     #[test]
     fn test_str_concatenation() {
-        assert_eq!(simple_eval("'this' .. (1>2)..'is'.. 'a' ..1 .. 'test'"), Value::Str("thisfalseisa1test".to_owned()));
+        assert_eq!(simple_eval("'this' .. (1>2)..'is'.. (\"a\" ..1) .. 'test'"), Value::Str("thisfalseisa1test".to_owned()));
     }
 }
