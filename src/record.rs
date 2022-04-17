@@ -77,6 +77,10 @@ impl Record {
         idx > 0 && idx <= self.fields.len()
     }
 
+    pub fn field(&self, n: usize) -> &str {
+        self.nth_str(n).unwrap_or("")
+    }
+
     pub fn nth_str(&self, n: usize) -> Result<&str> {
         if !self.has_field(n) {
             return Err(Error::NoSuchField(n));
@@ -91,8 +95,8 @@ impl Record {
         self.fields[n-1].parse::<Number>().map_err(|_| Error::NumberParseFailure)
     }
 
-    pub fn original_string(&self) -> &String {
-        &self.original_string
+    pub fn original_string(&self) -> &str {
+        &self.original_string.as_str()
     }
 
     pub fn len(&self) -> usize {

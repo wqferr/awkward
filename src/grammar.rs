@@ -16,16 +16,16 @@ pub struct EvaluationContext<'a> {
     end_of_parsing: bool
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum Expr {
     // These reference field index with their values
-    StrVar(usize),
-    NumVar(usize),
+    // StrVar(usize),
+    // NumVar(usize),
     // BoolVar?
 
-    StrNamedVar(String),
-    NumNamedVar(String),
-    // BoolNamedVar?
+    StrVar(FieldId),
+    NumVar(FieldId),
+    // BoolVar?
 
     StrLiteral(String),
     NumLiteral(Number),
@@ -53,49 +53,40 @@ pub enum Expr {
     Or(Box<Expr>, Box<Expr>),
     Not(Box<Expr>),
 
-    Pat(Pattern)
-}
-
-#[derive(Clone, Debug)]
-pub enum Pattern {
     Start,
     End,
-    RegularExpression(Regex)
+    RegexSearch{ re: Regex, field: FieldId }
 }
 
-impl PartialEq for Pattern {
-    fn eq(&self, other: &Self) -> bool {
-        use Pattern::*;
-        match (self, other) {
-            (Start, Start) => true,
-            (End, End) => true,
-            _ => false
-        }
-    }
+#[derive(Debug, Clone)]
+pub enum FieldId {
+    Name(String),
+    Idx(usize)
 }
 
 pub fn eval(expr: &Expr, ctx: &EvaluationContext) -> Value {
     use Expr::*;
     match expr {
-        StrVar(idx) => {
-            if *idx == 0 {
+        StrVar(field_id) => {
+            let idx = match field_id {
+                FieldId::Name(name) => ctx.field_names[name],
+                FieldId::Idx(idx) => *idx,
+            };
+            if idx == 0 {
                 let mut buf = Box::new(Vec::new());
                 ctx.current_record.write(&mut buf, ctx.ofs).unwrap();
                 Value::Str(String::from_utf8(*buf).unwrap())
             } else {
-                Value::Str(ctx.current_record.nth_str(*idx).unwrap_or("").to_owned())
+                Value::Str(ctx.current_record.nth_str(idx).unwrap_or("").to_owned())
             }
         },
-        NumVar(idx) => Value::Num(ctx.current_record.nth_num(*idx).unwrap().to_owned()),
-
-        StrNamedVar(name) => {
-            let idx = ctx.field_names[name];
-            Value::Str(ctx.current_record.nth_str(idx).unwrap().to_owned())
-        }
-        NumNamedVar(name) => {
-            let idx = ctx.field_names[name];
-            Value::Num(ctx.current_record.nth_num(idx).unwrap())
-        }
+        NumVar(field_id) => {
+            let idx = match field_id {
+                FieldId::Name(name) => ctx.field_names[name],
+                FieldId::Idx(idx) => *idx,
+            };
+            Value::Num(ctx.current_record.nth_num(idx).unwrap().to_owned())
+        },
 
         StrLiteral(s) => Value::Str(s.clone()),
         NumLiteral(n) => Value::Num(n.clone()),
@@ -138,16 +129,33 @@ pub fn eval(expr: &Expr, ctx: &EvaluationContext) -> Value {
             f(args)
         },
 
-        Pat(p) => {
-            match p {
-                Pattern::Start => Value::Bool(ctx.start_of_parsing),
-                Pattern::End => Value::Bool(ctx.end_of_parsing),
-                Pattern::RegularExpression(re) =>
-                    Value::Bool(
-                        re.find(ctx.current_record.original_string()).is_some()
-                    )
-            }
+        Start => Value::Bool(ctx.start_of_parsing),
+        End => Value::Bool(ctx.end_of_parsing),
+        RegexSearch { re, field } => {
+            let field_idx = match field {
+                FieldId::Name(name) => ctx.field_names[name],
+                FieldId::Idx(idx) => *idx,
+            };
+            let s = if field_idx == 0 {
+                // search whole record if field is 0
+                ctx.current_record.original_string()
+            } else {
+                ctx.current_record.field(field_idx)
+            };
+            Value::Bool(
+                re.find(s).is_some()
+            )
         }
+        // Pat(p) => {
+        //     match p {
+        //         Pattern::Start => Value::Bool(ctx.start_of_parsing),
+        //         Pattern::End => Value::Bool(ctx.end_of_parsing),
+        //         Pattern::RegularExpression(re) =>
+        //             Value::Bool(
+        //                 re.find(ctx.current_record.original_string()).is_some()
+        //             )
+        //     }
+        // }
     }
 }
 
@@ -223,40 +231,71 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> {
             )
             .map(|(f, args)| Expr::FnCall(f, args));
 
-        // starting characters for variable referencing
-        // i.e., either n@ or just @
-        let var_start =
+        let var = 
             just('n')
             .or_not()
-            .then_ignore(just('@'));
+            .then_ignore(just('@'))
+            .then(
+                text::int(10).map(|x: String| FieldId::Idx(x.parse::<usize>().unwrap()))
+                .or(text::ident().map(|n| FieldId::Name(n)))
+            )
+            .map(|(t, id)| {
+                match t {
+                    Some('n') => Expr::NumVar(id),
+                    _ => Expr::StrVar(id)
+                }
+            });
+
+        let start = text::keyword("start").to(Expr::Start);
+        let end = text::keyword("end").to(Expr::End);
+        let regex = 
+            just('/')
+            .ignore_then(
+                filter(move |c| *c != '\\' && *c != '/')
+                .or(
+                    just('\\')
+                    .ignore_then(just('/'))
+                )
+                .repeated())
+            .then_ignore(just('/'))
+            .then(
+                just('@')
+                .ignore_then(
+                    text::int(10)
+                    .or(text::ident())
+                )
+                .or_not()
+            )
+            .map(
+                |(v, field)| {
+                    let field_id = match field {
+                        Some(field) => match field.parse::<usize>() {
+                            Ok(field_idx) => FieldId::Idx(field_idx),
+                            Err(_) => FieldId::Name(field),
+                        },
+                        None => FieldId::Idx(0)
+                    };
+                    Expr::RegexSearch {
+                        re: Regex::new(
+                            v.into_iter().collect::<String>().as_str()
+                        ).unwrap(),
+                        field: field_id
+                    }
+                }
+            );
 
         // single term for arithmetic expressions
         let atom =
             choice((
                 num,
                 expr.delimited_by(just('('), just(')')),
-                var_start.clone()
-                    .then(text::int(10))
-                    .map(|(t, x)| {
-                        if t.is_some() {
-                            Expr::NumVar(x.parse().unwrap())
-                        } else {
-                            Expr::StrVar(x.parse().unwrap())
-                        }
-                    }),
-                var_start.clone()
-                    .then(text::ident())
-                    .map(|(t, name)| {
-                        if t.is_some() {
-                            Expr::NumNamedVar(name)
-                        } else {
-                            Expr::StrNamedVar(name)
-                        }
-                    }),
+                var,
                 call,
                 string_dq,
                 string_sq,
-                // pattern,
+                start,
+                end,
+                regex
             )).padded();
     
         // operators with a single char
@@ -357,7 +396,7 @@ mod test {
     fn simple_eval(expr: &str) -> Value {
         let p = parser();
         let r = Record::from("abc,2,lol".to_owned(), ",");
-        let c = |args: Vec<Value>| {
+        let double = |args: Vec<Value>| {
             if let Value::Num(x) = args[0] {
                 Value::Num(2*x)
             } else {
@@ -374,15 +413,17 @@ mod test {
                 ("third".to_owned(), 3)
             ]),
             functions: HashMap::from([
-                ("double".to_owned(), Box::new(c) as BuiltinFunction)
+                ("double".to_owned(), Box::new(double) as BuiltinFunction)
             ]),
             start_of_parsing: false,
             end_of_parsing: false
         };
 
         let res = p.parse(expr);
-        assert!(res.is_ok());
-        eval(&res.unwrap(), &ctx)
+        match res {
+            Ok(expr) => eval(&expr, &ctx),
+            Err(e) => panic!("{:?}", e),
+        }
     }
 
     #[test]
@@ -452,5 +493,20 @@ mod test {
     #[test]
     fn test_function_calls() {
         assert_eq!(simple_eval("double(4)"), Value::Num(8.into()));
+        assert_eq!(simple_eval("double(double(3)) + double(2.5) + 2"), Value::Num(19.into()));
+    }
+
+    #[test]
+    fn test_search() {
+        assert_eq!(simple_eval("/lo/"), Value::Bool(true));
+        assert_eq!(simple_eval("/^lo/"), Value::Bool(false));
+        assert_eq!(simple_eval("/lo/@0"), Value::Bool(true));
+        assert_eq!(simple_eval("/^lo/@0"), Value::Bool(false));
+        assert_eq!(simple_eval("/lo/@2"), Value::Bool(false));
+        assert_eq!(simple_eval("/lo/@3"), Value::Bool(true));
+        assert_eq!(simple_eval("/^lo/@3"), Value::Bool(true));
+        assert_eq!(simple_eval("/lo/@second"), Value::Bool(false));
+        assert_eq!(simple_eval("/lo/@third"), Value::Bool(true));
+        assert_eq!(simple_eval("/^lo/@third"), Value::Bool(true));
     }
 }
