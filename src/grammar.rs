@@ -477,7 +477,7 @@ pub fn program_parser() -> impl Parser<char, Vec<Declaration>, Error=Simple<char
     let program =
         decl.clone()
         .then(
-            just(';')
+            just(';').padded()
             .ignore_then(decl.or_not())
             .repeated()
         )
@@ -617,7 +617,7 @@ mod test {
             put(@2), put(@1);
             start -> putline("start");
             end -> putline("end");
-            (nr() % 2 == 0 && nr() > 0) -> put("thing!"), put("other thing!")
+            (nr() % 2 == 0 && nr() > 0) -> put("thing!"), put("other thing!");
         "#).unwrap();
         let mut ctx = EvaluationContext::new(",".to_owned());
 

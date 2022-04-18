@@ -3,7 +3,6 @@ name = "awkward"
 version = "0.1.0"
 authors = ["William Quelho Ferreira <wqferr@gmail.com>"]
 license = "GPL-3.0-or-later"
-license-file = "LICENSE"
 description = "A more comfortable version of AWK"
 readme = "README.md"
 repository = "https://github.com/wqferr/awkward"
