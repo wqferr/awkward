@@ -5,7 +5,7 @@ use fixed::types::extra::U32;
 
 pub type Number = FixedI128<U32>;
 
-pub type BuiltinFunction = Box<dyn Fn(Vec<Value>) -> Value>;
+pub type BuiltinFunction = Box<dyn FnMut(Vec<Value>) -> Value>;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd)]
 pub enum Value {

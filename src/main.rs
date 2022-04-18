@@ -6,7 +6,7 @@ use std::io::BufReader;
 use std::io::Write;
 use std::io::stdin;
 use std::io::stdout;
-use grammar::parser;
+use grammar::program_parser;
 
 use clap::Parser;
 use clap::ValueHint;
@@ -16,6 +16,11 @@ use record::Record;
 
 mod grammar;
 mod types;
+
+#[cfg(windows)]
+const DEFAULT_LINE_ENDING: &'static str = "\r\n";
+#[cfg(not(windows))]
+const DEFAULT_LINE_ENDING: &'static str = "\n";
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -36,7 +41,7 @@ struct Args {
     // #[clap(long = "irs", env = "IRS", default_value_t = '\n', help = "Input record separator")]
     // input_record_separator: char,
 
-    #[clap(long = "ors", env = "ORS", default_value = "\n", help = "Output record separator")]
+    #[clap(long = "ors", env = "ORS", default_value = DEFAULT_LINE_ENDING, help = "Output record separator")]
     output_record_separator: String,
 
     #[clap(long, short, help = "Whether to consider consecutive field separator strings as empty fields")]
@@ -95,14 +100,6 @@ fn main() -> anyhow::Result<()> {
     let ofs = args.output_field_separator.unwrap_or_else(|| ifs.clone());
     let ors = args.output_record_separator;
 
-    // if args.output_field_separator.is_none() {
-    //     ofs = Some(args.input_field_separator.clone());
-    // }
-
-    // if args.output_record_separator.is_none() {
-    //     args.output_record_separator = Some(args.input_record_separator.clone());
-    // }
-
     if args.program_file.is_some() {
         let path = args.program_file.unwrap();
         args.program = Some(read_to_string(path)?);
@@ -121,8 +118,9 @@ fn main() -> anyhow::Result<()> {
 
     let mut lock = sout.lock();
     loop {
-        // both flags are inverted here, but their names make more sense like this
         let mut record = Record::read(&mut input, &ifs)?;
+
+        // both flags are inverted here, but their names make more sense like this
         record.process(!args.allow_empty_fields, !args.dont_trim_fields);
         
         record.write(&mut lock, &ofs)?;

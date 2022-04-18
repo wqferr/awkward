@@ -32,6 +32,13 @@ impl Record {
         }
     }
 
+    pub fn empty() -> Self {
+        Self {
+            original_string: "".to_owned(),
+            fields: vec![]
+        }
+    }
+
     pub fn read(source: &mut dyn BufRead, field_sep: &str) -> anyhow::Result<Self> {
         let mut buf = String::with_capacity(500);
         source.read_line(&mut buf)?;
