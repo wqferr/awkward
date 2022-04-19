@@ -1,250 +1,8 @@
 use chumsky::prelude::*;
-use std::collections::HashMap;
 use regex::Regex;
 
-use super::record::Record;
-use super::types::{Value, Number, BuiltinFunction};
+use crate::expr::{Expr, Declaration, FieldId};
 
-pub struct EvaluationContext {
-    current_record: Option<Record>,
-    ofs: String,
-    field_names: HashMap<String, usize>,
-
-    functions: HashMap<String, BuiltinFunction>,
-
-    parsing_state: ParsingState
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum ParsingState {
-    Start,
-    Processing,
-    End
-}
-
-impl EvaluationContext {
-    pub fn new(ofs: String) -> Self {
-        Self {
-            current_record: None,
-            ofs,
-            field_names: HashMap::new(),
-            functions: HashMap::new(),
-
-            parsing_state: ParsingState::Start
-        }
-    }
-
-    pub fn set_header(&mut self, header: Record) {
-        for (i, field_name) in header.into_iter().enumerate() {
-            self.field_names.insert(field_name, i+1);
-        }
-    }
-
-    pub fn register_builtin<F: 'static + FnMut(Vec<Value>) -> Value>(&mut self, name: &str, f: F) {
-        self.functions.insert(name.to_owned(), Box::new(f));
-    }
-
-    pub fn set_current_record(&mut self, r: Record) {
-        self.current_record = Some(r);
-        self.parsing_state = ParsingState::Processing;
-    }
-
-    pub fn finish_parsing(&mut self) {
-        self.current_record = None;
-        self.parsing_state = ParsingState::End;
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum Expr {
-    // These reference field index with their values
-    // StrVar(usize),
-    // NumVar(usize),
-    // BoolVar?
-
-    StrVar(FieldId),
-    NumVar(FieldId),
-    // BoolVar?
-
-    StrLiteral(String),
-    NumLiteral(Number),
-    BoolLiteral(bool),
-
-    FnCall(String, Vec<Expr>),
-
-    Neg(Box<Expr>),
-    Add(Box<Expr>, Box<Expr>),
-    Sub(Box<Expr>, Box<Expr>),
-    Mul(Box<Expr>, Box<Expr>),
-    Div(Box<Expr>, Box<Expr>),
-    Mod(Box<Expr>, Box<Expr>),
-    Concat(Box<Expr>, Box<Expr>),
-    ConcatWSep(Box<Expr>, Box<Expr>),
-
-    Eq(Box<Expr>, Box<Expr>),
-    Ineq(Box<Expr>, Box<Expr>),
-    Greater(Box<Expr>, Box<Expr>),
-    GreaterEq(Box<Expr>, Box<Expr>),
-    Lesser(Box<Expr>, Box<Expr>),
-    LesserEq(Box<Expr>, Box<Expr>),
-
-    And(Box<Expr>, Box<Expr>),
-    Or(Box<Expr>, Box<Expr>),
-    Not(Box<Expr>),
-
-    Start,
-    HasRecord,
-    End,
-    RegexSearch{ re: Regex, field: FieldId }
-}
-
-#[derive(Debug, Clone)]
-pub struct Declaration {
-    pattern: Expr,
-    actions: Vec<Expr>
-}
-
-impl Declaration {
-    pub fn new(pattern: Expr, actions: Vec<Expr>) -> Self {
-        Self { pattern, actions }
-    }
-
-    pub fn applies(&self, ctx: &mut EvaluationContext) -> bool {
-        self.pattern.eval_bool(ctx)
-    }
-
-    pub fn execute_if_applies(&self, ctx: &mut EvaluationContext) {
-        if self.applies(ctx) {
-            for action in self.actions.iter() {
-                action.eval(ctx);
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum FieldId {
-    Name(String),
-    Idx(usize)
-}
-
-impl Expr {
-    pub fn eval(&self, ctx: &mut EvaluationContext) -> Value {
-        use Expr::*;
-        match self {
-            StrVar(field_id) => {
-                let idx = match field_id {
-                    FieldId::Name(name) => ctx.field_names[name],
-                    FieldId::Idx(idx) => *idx,
-                };
-                if idx == 0 {
-                    let mut buf = Box::new(Vec::new());
-                    ctx.current_record.as_ref().unwrap().write(&mut buf, ctx.ofs.as_str()).unwrap();
-                    Value::Str(String::from_utf8(*buf).unwrap())
-                } else {
-                    Value::Str(ctx.current_record.as_ref().unwrap().nth_str(idx).unwrap_or("").to_owned())
-                }
-            },
-            NumVar(field_id) => {
-                let idx = match field_id {
-                    FieldId::Name(name) => ctx.field_names[name],
-                    FieldId::Idx(idx) => *idx,
-                };
-                Value::Num(ctx.current_record.as_ref().unwrap().nth_num(idx).unwrap().to_owned())
-            },
-    
-            StrLiteral(s) => Value::Str(s.clone()),
-            NumLiteral(n) => Value::Num(n.clone()),
-            BoolLiteral(b) => Value::Bool(*b),
-    
-            Neg(x) => Value::Num(-x.eval_num(ctx)),
-            Add(x, y) => Value::Num(x.eval_num(ctx) + y.eval_num(ctx)),
-            Sub(x, y) => Value::Num(x.eval_num(ctx) - y.eval_num(ctx)),
-            Mul(x, y) => Value::Num(x.eval_num(ctx) * y.eval_num(ctx)),
-            Div(x, y) => Value::Num(x.eval_num(ctx) / y.eval_num(ctx)),
-            Mod(x, y) => Value::Num(x.eval_num(ctx) % y.eval_num(ctx)),
-            Concat(x, y) => {
-                let mut s1 = x.eval_str(ctx);
-                let s2 = y.eval_str(ctx);
-                s1.push_str(s2.as_str());
-    
-                Value::Str(s1)
-            },
-            ConcatWSep(x, y) => {
-                let mut s1 = x.eval_str(ctx);
-                let s2 = y.eval_str(ctx);
-                s1.push_str(ctx.ofs.as_str());
-                s1.push_str(s2.as_str());
-    
-                Value::Str(s1)
-            },
-    
-            Eq(x, y) => Value::Bool(x.eval(ctx) == y.eval(ctx)),
-            Ineq(x, y) => Value::Bool(x.eval(ctx) != y.eval(ctx)),
-            Greater(x, y) => Value::Bool(x.eval_num(ctx) > y.eval_num(ctx)),
-            GreaterEq(x, y) => Value::Bool(x.eval_num(ctx) >= y.eval_num(ctx)),
-            Lesser(x, y) => Value::Bool(x.eval_num(ctx) < y.eval_num(ctx)),
-            LesserEq(x, y) => Value::Bool(x.eval_num(ctx) <= y.eval_num(ctx)),
-    
-            And(x, y) => Value::Bool(x.eval_bool(ctx) && y.eval_bool(ctx)),
-            Or(x, y) => Value::Bool(x.eval_bool(ctx) || y.eval_bool(ctx)),
-            Not(x) => Value::Bool(!x.eval_bool(ctx)),
-            FnCall(fname, args) => {
-                // TODO check if function exists
-                let mut vargs = vec![];
-                for a in args {
-                    vargs.push(a.eval(ctx));
-                }
-                let f = ctx.functions.get_mut(fname).unwrap();
-                f(vargs)
-            },
-    
-            Start => Value::Bool(ctx.parsing_state == ParsingState::Start),
-            HasRecord => Value::Bool(ctx.parsing_state == ParsingState::Processing),
-            End => Value::Bool(ctx.parsing_state == ParsingState::End),
-            RegexSearch { re, field } => {
-                let field_idx = match field {
-                    FieldId::Name(name) => ctx.field_names[name],
-                    FieldId::Idx(idx) => *idx,
-                };
-                let r = ctx.current_record.as_ref().unwrap();
-                let s = if field_idx == 0 {
-                    // search whole record if field is 0
-                    r.original_string()
-                } else {
-                    r.field(field_idx)
-                };
-                Value::Bool(
-                    re.find(s).is_some()
-                )
-            }
-        }
-    }
-    
-    pub fn eval_num(&self, ctx: &mut EvaluationContext) -> Number {
-        match self.eval(ctx) {
-            Value::Num(x) => x,
-            Value::Str(s) => panic!("Expected number, found string `{}`", s),
-            Value::Bool(b) => panic!("Expected number, found bool `{}`", b)
-        }
-    }
-    
-    pub fn eval_bool(&self, ctx: &mut EvaluationContext) -> bool {
-        match self.eval(ctx) {
-            Value::Bool(b) => b,
-            Value::Str(s) => panic!("Expected bool, found string `{}`", s),
-            Value::Num(x) => panic!("Expected bool, found number `{}`", x)
-        }
-    }
-    
-    pub fn eval_str(&self, ctx: &mut EvaluationContext) -> String {
-        match self.eval(ctx) {
-            Value::Str(s) => s,
-            Value::Bool(b) => if b {"true".to_owned()} else {"false".to_owned()},
-            Value::Num(x) => format!("{}", x)
-        }
-    }
-}
 
 fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
     recursive(|expr| {
@@ -467,11 +225,11 @@ pub fn program_parser() -> impl Parser<char, Vec<Declaration>, Error=Simple<char
                 a.append(&mut rest);
                 a
             };
-            Declaration {
+            Declaration::new(
                 // if pattern is omitted, execute for every record after it's started
-                pattern: pat.unwrap_or(Expr::HasRecord),
+                pat.unwrap_or(Expr::HasRecord),
                 actions
-            }
+            )
         });
 
     let program =
@@ -499,6 +257,9 @@ mod test {
     use std::fmt::Write;
 
     use super::*;
+    use crate::record::Record;
+    use crate::types::{Number, Value};
+    use crate::expr::EvaluationContext;
 
     fn simple_eval(expr: &str) -> Value {
         let r = Record::from("abc,2,lol".to_owned(), ",");
@@ -511,7 +272,7 @@ mod test {
             }
         };
         let mut ctx = EvaluationContext::new(",".to_owned());
-        ctx.set_header(Record::from("first,second,third".to_owned(), ","));
+        ctx.set_field_names(vec!["first".to_owned(), "second".to_owned(), "third".to_owned()]);
         ctx.register_builtin("double", double);
         ctx.set_current_record(r);
 
@@ -614,10 +375,9 @@ mod test {
         use std::rc::Rc;
 
         let decl = program_parser().parse(r#"
+            (nr() == 1) -> putline("start");
             put(@2), put(@1);
-            start -> putline("start");
-            end -> putline("end");
-            (nr() % 2 == 0 && nr() > 0) -> put("thing!"), put("other thing!");
+            (nr() % 2 == 0) -> put("thing!"), put("other thing!");
         "#).unwrap();
         let mut ctx = EvaluationContext::new(",".to_owned());
 
@@ -660,10 +420,6 @@ mod test {
         };
         ctx.register_builtin("nr", nr);
 
-        for d in decl.iter() {
-            d.execute_if_applies(&mut ctx);
-        }
-
         (*record_number_original.borrow_mut()) += 1;
         (*line_is_empty_original.borrow_mut()) = true;
         ctx.set_current_record(Record::from("hello,there".to_owned(), ","));
@@ -680,17 +436,13 @@ mod test {
         }
         (*buf_original.borrow_mut()).write_char('\n').unwrap();
 
-        (*record_number_original.borrow_mut()) = 0;
-        (*line_is_empty_original.borrow_mut()) = true;
-        ctx.finish_parsing();
-        for d in decl.iter() {
-            d.execute_if_applies(&mut ctx);
-        }
+        // (*record_number_original.borrow_mut()) = 0;
+        // (*line_is_empty_original.borrow_mut()) = true;
+        // ctx.finish_parsing();
 
         assert_eq!(r#"start
 there,hello
 kenobi,general,thing!,other thing!
-end
 "#.to_owned(), *dbg!(buf_original.borrow()));
     }
 }

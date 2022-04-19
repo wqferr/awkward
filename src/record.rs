@@ -45,17 +45,8 @@ impl Record {
         Ok(Self::from(buf, field_sep))
     }
 
-    pub fn write(&self, sink: &mut dyn Write, field_sep: &str) -> anyhow::Result<()> {
-        let mut fields = self.fields.iter();
-        if let Some(field) = fields.next() {
-            sink.write(field.as_bytes())?;
-
-            for field in fields {
-                sink.write(field_sep.as_bytes())?;
-                sink.write(field.as_bytes())?;
-            }
-        }
-        Ok(())
+    pub fn join(&self, field_sep: &str) -> String {
+        self.fields.join(field_sep)
     }
 
     pub fn process(&mut self, skip_blanks: bool, trim: bool) {

@@ -16,6 +16,8 @@ use record::Record;
 
 mod grammar;
 mod types;
+mod expr;
+mod program;
 
 #[cfg(windows)]
 const DEFAULT_LINE_ENDING: &'static str = "\r\n";
@@ -123,7 +125,7 @@ fn main() -> anyhow::Result<()> {
         // both flags are inverted here, but their names make more sense like this
         record.process(!args.allow_empty_fields, !args.dont_trim_fields);
         
-        record.write(&mut lock, &ofs)?;
+        // record.write(&mut lock, &ofs)?;
         lock.write(ors.as_bytes())?;
 
         let buf = input.fill_buf()?;
