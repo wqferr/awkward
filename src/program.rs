@@ -3,14 +3,14 @@ use std::rc::Rc;
 
 use chumsky::chain::Chain;
 
-use crate::expr::{Declaration, EvaluationContext};
+use crate::expr::{Rule, EvaluationContext};
 use crate::record::Record;
 use crate::types::{Number, Value};
 
 pub struct Program {
-    declarations: Vec<Declaration>,
+    rules: Vec<Rule>,
     state: EvaluationContext,
-    ors: String,
+    record_terminator: String,
 
     output: Rc<RefCell<String>>,
     record_number: Rc<RefCell<usize>>
@@ -19,9 +19,9 @@ pub struct Program {
 impl Program {
     pub fn new(ofs: String, ors: String) -> Self {
         let mut s = Self {
-            declarations: vec![],
+            rules: vec![],
             state: EvaluationContext::new(ofs),
-            ors,
+            record_terminator: ors,
             output: Rc::new(RefCell::new(String::new())),
 
             record_number: Rc::new(RefCell::new(0usize))
@@ -37,22 +37,22 @@ impl Program {
     pub fn register_builtin<F: 'static + FnMut(Vec<Value>) -> Value>(&mut self, name: &str, f: F) {
         self.state.register_builtin(name, f);
     }
-
-    pub fn push_decl(&mut self, decl: Declaration) {
-        self.declarations.push(decl);
+    
+    pub fn field_separator(&self) -> &str {
+        self.state.ofs()
     }
 
-    pub fn extend(&mut self, decls: Vec<Declaration>) {
-        self.declarations.extend(decls.into_iter());
+    pub fn record_terminator(&self) -> &str {
+        self.record_terminator.as_str()
     }
 
-    pub fn copy_output(&self) -> String {
-        self.output.borrow().clone()
+    pub fn push_rules(&mut self, rules: Vec<Rule>) {
+        self.rules.extend(rules.into_iter());
     }
 
     fn inject_bulitins(&mut self) {
         let output = self.output.clone();
-        let ors = self.ors.clone();
+        let ors = self.record_terminator.clone();
         let ofs = self.state.ofs().to_owned();
         self.register_builtin("put", move |args: Vec<Value>| {
             for v in args.iter() {
@@ -79,15 +79,40 @@ impl Program {
             let num = Number::from_num(*record_number.borrow());
             Value::Num(num)
         });
+
+        let separator = self.field_separator().to_owned();
+        self.register_builtin("ofs", move |_| Value::Str(separator.clone()));
+
+        let terminator = self.record_terminator().to_owned();
+        self.register_builtin("ors", move |_| Value::Str(terminator.clone()));
+
+        let output = self.output.clone();
+        let ors = self.record_terminator().to_owned();
+        self.register_builtin("newrec", move |_| {
+            output.borrow_mut().push_str(ors.as_str());
+            Value::Bool(true)
+        });
     }
 
-    pub fn next_record(&mut self, record: Record) {
+    pub fn consume(&mut self, record: Record) {
+        self.output.borrow_mut().clear();
+
         self.state.set_current_record(record);
         *self.record_number.borrow_mut() += 1;
-        for d in self.declarations.iter() {
+        for d in self.rules.iter() {
             d.execute_if_applies(&mut self.state);
         }
-        self.output.borrow_mut().push_str(self.ors.as_str());
+        self.output.borrow_mut()
+            .push_str(self.record_terminator.as_str());
+    }
+
+    pub fn process(&mut self, record: Record) -> String {
+        self.consume(record);
+        self.last_output()
+    }
+
+    pub fn last_output(&self) -> String {
+        self.output.borrow().to_owned()
     }
 }
 
@@ -100,33 +125,33 @@ mod test {
 
     #[test]
     fn test_simple() {
-        let decl = program_parser().parse(r#"
+        let rules = program_parser().parse(r#"
             put(nr(), @0);
             (nr() % 3 == 0) -> put("fizz");
             (nr() % 5 == 0) -> put("buzz");
         "#).unwrap();
         let mut prog = Program::new(",".to_owned(), "\n".to_owned());
-        prog.extend(decl);
+        prog.push_rules(rules);
 
-        prog.next_record(Record::from("hello".to_owned(), ","));
-        prog.next_record(Record::from("there".to_owned(), ","));
-        prog.next_record(Record::from("general".to_owned(), ","));
-        prog.next_record(Record::from("kenobi".to_owned(), ","));
-        prog.next_record(Record::from("you".to_owned(), ","));
-        prog.next_record(Record::from("are".to_owned(), ","));
-        prog.next_record(Record::from("a".to_owned(), ","));
-        prog.next_record(Record::from("bold".to_owned(), ","));
-        prog.next_record(Record::from("one".to_owned(), ","));
-        prog.next_record(Record::from("that".to_owned(), ","));
-        prog.next_record(Record::from("was".to_owned(), ","));
-        prog.next_record(Record::from("the".to_owned(), ","));
-        prog.next_record(Record::from("quote".to_owned(), ","));
-        prog.next_record(Record::from("but".to_owned(), ","));
-        prog.next_record(Record::from("i".to_owned(), ","));
-        prog.next_record(Record::from("need".to_owned(), ","));
-        prog.next_record(Record::from("more".to_owned(), ","));
-        prog.next_record(Record::from("lines".to_owned(), ","));
+        prog.consume(Record::from("hello".to_owned(), ","));
+        prog.consume(Record::from("there".to_owned(), ","));
+        prog.consume(Record::from("general".to_owned(), ","));
+        prog.consume(Record::from("kenobi".to_owned(), ","));
+        prog.consume(Record::from("you".to_owned(), ","));
+        prog.consume(Record::from("are".to_owned(), ","));
+        prog.consume(Record::from("a".to_owned(), ","));
+        prog.consume(Record::from("bold".to_owned(), ","));
+        prog.consume(Record::from("one".to_owned(), ","));
+        prog.consume(Record::from("that".to_owned(), ","));
+        prog.consume(Record::from("was".to_owned(), ","));
+        prog.consume(Record::from("the".to_owned(), ","));
+        prog.consume(Record::from("quote".to_owned(), ","));
+        prog.consume(Record::from("but".to_owned(), ","));
+        prog.consume(Record::from("i".to_owned(), ","));
+        prog.consume(Record::from("need".to_owned(), ","));
+        prog.consume(Record::from("more".to_owned(), ","));
+        prog.consume(Record::from("lines".to_owned(), ","));
 
-        println!("{}", prog.copy_output());
+        // println!("{}", prog.copy_output());
     }
 }

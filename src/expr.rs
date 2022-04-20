@@ -35,9 +35,9 @@ pub enum Expr {
     Or(Box<Expr>, Box<Expr>),
     Not(Box<Expr>),
 
-    Start,
-    HasRecord,
-    End,
+    // Start,
+    // HasRecord,
+    // End,
     RegexSearch{ re: Regex, field: FieldId }
 }
 
@@ -52,7 +52,7 @@ pub struct EvaluationContext {
 }
 
 #[derive(Debug, Clone)]
-pub struct Declaration {
+pub struct Rule {
     pattern: Expr,
     actions: Vec<Expr>
 }
@@ -145,9 +145,9 @@ impl Expr {
                 f(vargs)
             },
     
-            Start => Value::Bool(ctx.parsing_state == ParsingStage::Start),
-            HasRecord => Value::Bool(ctx.parsing_state == ParsingStage::Processing),
-            End => Value::Bool(ctx.parsing_state == ParsingStage::End),
+            // Start => Value::Bool(ctx.parsing_state == ParsingStage::Start),
+            // HasRecord => Value::Bool(ctx.parsing_state == ParsingStage::Processing),
+            // End => Value::Bool(ctx.parsing_state == ParsingStage::End),
             RegexSearch { re, field } => {
                 let field_idx = match field {
                     FieldId::Name(name) => ctx.field_names[name],
@@ -188,7 +188,7 @@ impl Expr {
     }
 }
 
-impl Declaration {
+impl Rule {
     pub fn new(pattern: Expr, actions: Vec<Expr>) -> Self {
         Self { pattern, actions }
     }

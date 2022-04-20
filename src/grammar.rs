@@ -1,10 +1,13 @@
 use chumsky::prelude::*;
 use regex::Regex;
 
-use crate::expr::{Expr, Declaration, FieldId};
+use crate::expr::{Expr, Rule, FieldId};
 
 
 fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
+    
+    // This grammar was adapted from Chumsky's tutorial
+
     recursive(|expr| {
         // number literal
         let num = text::int(10)
@@ -71,8 +74,8 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
                 }
             });
 
-        let start = text::keyword("start").to(Expr::Start);
-        let end = text::keyword("end").to(Expr::End);
+        // let start = text::keyword("start").to(Expr::Start);
+        // let end = text::keyword("end").to(Expr::End);
         let regex = 
             just('/')
             .ignore_then(
@@ -109,7 +112,7 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
                 }
             );
 
-        // single term for arithmetic expressions
+        // single term for algebraic expressions
         let atom =
             choice((
                 num,
@@ -119,8 +122,8 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
                 bool_lit,
                 string_dq,
                 string_sq,
-                start,
-                end,
+                // start,
+                // end,
                 regex
             )).padded();
     
@@ -203,43 +206,37 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
     })
 }
 
-pub fn program_parser() -> impl Parser<char, Vec<Declaration>, Error=Simple<char>> {
-    // This grammar was adapted from Chumsky's tutorial
-
+pub fn program_parser() -> impl Parser<char, Vec<Rule>, Error=Simple<char>> {
     let expr = expr_parser();
-    let decl =
+    let rule =
         expr.clone()
         .then_ignore(just("->"))
         .or_not()
         .then(
-            expr.clone()
-            .then(
-                just(',')
-                .ignore_then(expr)
-                .repeated()
-            )
+            expr
+            .separated_by(just(','))
+            // .then(
+            //     just(',')
+            //     .ignore_then(expr)
+            //     .repeated()
+            // )
         )
-        .map(|(pat, (first, mut rest))| {
-            let actions = {
-                let mut a = vec![first];
-                a.append(&mut rest);
-                a
-            };
-            Declaration::new(
+        .map(|(pat, actions)| {
+            Rule::new(
                 // if pattern is omitted, execute for every record after it's started
-                pat.unwrap_or(Expr::HasRecord),
+                pat.unwrap_or(Expr::BoolLiteral(true)),
                 actions
             )
         });
 
     let program =
-        decl.clone()
+        rule.clone()
         .then(
             just(';').padded()
-            .ignore_then(decl.or_not())
+            .ignore_then(rule.or_not())
             .repeated()
         )
-        .map(|(d, vd): (Declaration, Vec<Option<Declaration>>)| {
+        .map(|(d, vd): (Rule, Vec<Option<Rule>>)| {
             let mut v = vec![d];
             for other in vd.into_iter() {
                 if let Some(other) = other {
@@ -370,11 +367,11 @@ mod test {
     }
 
     #[test]
-    fn test_decl() {
+    fn test_rule() {
         use std::cell::RefCell;
         use std::rc::Rc;
 
-        let decl = program_parser().parse(r#"
+        let rules = program_parser().parse(r#"
             (nr() == 1) -> putline("start");
             put(@2), put(@1);
             (nr() % 2 == 0) -> put("thing!"), put("other thing!");
@@ -423,7 +420,7 @@ mod test {
         (*record_number_original.borrow_mut()) += 1;
         (*line_is_empty_original.borrow_mut()) = true;
         ctx.set_current_record(Record::from("hello,there".to_owned(), ","));
-        for d in decl.iter() {
+        for d in rules.iter() {
             d.execute_if_applies(&mut ctx);
         }
         (*buf_original.borrow_mut()).write_char('\n').unwrap();
@@ -431,7 +428,7 @@ mod test {
         (*record_number_original.borrow_mut()) += 1;
         (*line_is_empty_original.borrow_mut()) = true;
         ctx.set_current_record(Record::from("general,kenobi".to_owned(), ","));
-        for d in decl.iter() {
+        for d in rules.iter() {
             d.execute_if_applies(&mut ctx);
         }
         (*buf_original.borrow_mut()).write_char('\n').unwrap();
@@ -443,6 +440,6 @@ mod test {
         assert_eq!(r#"start
 there,hello
 kenobi,general,thing!,other thing!
-"#.to_owned(), *dbg!(buf_original.borrow()));
+"#.to_owned(), *buf_original.borrow());
     }
 }
