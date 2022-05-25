@@ -8,7 +8,7 @@ pub type Number = FixedI128<U32>;
 
 pub type BuiltinFunction = Box<dyn FnMut(Vec<Value>) -> Value>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
 pub enum Value {
     Num(Number),
     Str(String),

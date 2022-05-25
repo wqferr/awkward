@@ -5,9 +5,13 @@ use crate::types::{Value, Number, BuiltinFunction};
 
 #[derive(Clone, Debug)]
 pub enum Expr {
-    StrVar(FieldId),
-    NumVar(FieldId),
-    // BoolVar?
+    StrField(FieldId),
+    NumField(FieldId),
+    // BoolField?
+    FieldAssign(FieldId, Box<Expr>),
+
+    Var(String),
+    VarAssign(String, Box<Expr>),
 
     StrLiteral(String),
     NumLiteral(Number),
@@ -47,6 +51,7 @@ pub struct EvaluationContext {
     field_names: HashMap<String, usize>,
 
     functions: HashMap<String, BuiltinFunction>,
+    variables: HashMap<String, Value>,
 
     parsing_state: ParsingStage
 }
@@ -57,7 +62,7 @@ pub struct Rule {
     actions: Vec<Expr>
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum FieldId {
     Name(String),
     Idx(usize)
@@ -74,12 +79,13 @@ impl Expr {
     pub fn eval(&self, ctx: &mut EvaluationContext) -> Value {
         use Expr::*;
         match self {
-            StrVar(field_id) => {
+            StrField(field_id) => {
                 let idx = match field_id {
                     FieldId::Name(name) => ctx.field_names[name],
                     FieldId::Idx(idx) => *idx,
                 };
                 if idx == 0 {
+                    // ctx.current_record.as
                     Value::Str(
                         ctx.current_record.as_ref().unwrap()
                             .join(ctx.ofs.as_str())
@@ -88,12 +94,35 @@ impl Expr {
                     Value::Str(ctx.current_record.as_ref().unwrap().nth_str(idx).unwrap_or("").to_owned())
                 }
             },
-            NumVar(field_id) => {
+            NumField(field_id) => {
                 let idx = match field_id {
                     FieldId::Name(name) => ctx.field_names[name],
                     FieldId::Idx(idx) => *idx,
                 };
-                Value::Num(ctx.current_record.as_ref().unwrap().nth_num(idx).unwrap().to_owned())
+                let rec = ctx.current_record.as_ref().unwrap();
+                Value::Num(rec.nth_num(idx).unwrap().to_owned())
+            },
+
+            FieldAssign(id, expr) => {
+                let result = expr.eval(ctx);
+                let idx = match id {
+                    FieldId::Idx(idx) => idx,
+                    FieldId::Name(name) => ctx.field_names.get(name).unwrap()
+                };
+                ctx.current_record.as_mut().unwrap()
+                    .set(*idx, result.to_string());
+                result
+            },
+
+            Var(name) => {
+                ctx.variables.get(name)
+                    .unwrap()
+                    .clone()
+            },
+            VarAssign(name, expr) => {
+                let result = expr.eval(ctx);
+                ctx.variables.insert(name.clone(), result.clone());
+                result.clone()
             },
     
             StrLiteral(s) => Value::Str(s.clone()),
@@ -216,7 +245,9 @@ impl EvaluationContext {
             current_record: None,
             ofs,
             field_names: HashMap::new(),
+
             functions: HashMap::new(),
+            variables: HashMap::new(),
 
             parsing_state: ParsingStage::Start
         }
@@ -230,6 +261,10 @@ impl EvaluationContext {
 
     pub fn register_builtin<F: 'static + FnMut(Vec<Value>) -> Value>(&mut self, name: &str, f: F) {
         self.functions.insert(name.to_owned(), Box::new(f));
+    }
+
+    pub fn set_var(&mut self, name: String, v: Value) {
+        self.variables.insert(name, v);
     }
 
     pub fn set_current_record(&mut self, r: Record) {

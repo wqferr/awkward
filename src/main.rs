@@ -12,6 +12,7 @@ use clap::Parser;
 use clap::ValueHint;
 
 use anyhow;
+use program::Program;
 use record::Record;
 
 mod grammar;
@@ -86,17 +87,10 @@ struct Args {
         help = "File containing program executed once per record; if given, <PROGRAM> is no longer required",
     )]
     program_file: Option<String>,
-
-    #[clap(
-        value_hint = ValueHint::FilePath,
-        help = "File to be processed; omit to use standard input",
-    )]
-    input_file: Option<String>
 }
 
 fn main() -> anyhow::Result<()> {
     let mut args = Args::parse();
-    // let mut ifs, ors, ofs;
 
     let ifs = args.input_field_separator;
     let ofs = args.output_field_separator.unwrap_or_else(|| ifs.clone());
@@ -107,26 +101,24 @@ fn main() -> anyhow::Result<()> {
         args.program = Some(read_to_string(path)?);
     }
 
+    let mut prog = Program::new(ofs, ors);
+    prog.push_rules(Program::compile(args.program.unwrap().as_str()));
+
     let sin = stdin();
     let sout = stdout();
 
-    let mut input: Box<dyn BufRead>;
+    let mut input = sin.lock();
+    let mut output = sout.lock();
 
-    if let Some(path) = args.input_file {
-        input = Box::new(BufReader::new(File::open(path)?));
-    } else {
-        input = Box::new(sin.lock());
-    }
-
-    let mut lock = sout.lock();
+    // TODO header
     loop {
         let mut record = Record::read(&mut input, &ifs)?;
 
         // both flags are inverted here, but their names make more sense like this
         record.process(!args.allow_empty_fields, !args.dont_trim_fields);
-        
-        // record.write(&mut lock, &ofs)?;
-        lock.write(ors.as_bytes())?;
+
+        prog.consume(record);
+        output.write_all(prog.last_output().as_bytes())?;
 
         let buf = input.fill_buf()?;
         if buf.is_empty() {

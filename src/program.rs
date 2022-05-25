@@ -1,11 +1,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use chumsky::chain::Chain;
-
 use crate::expr::{Rule, EvaluationContext};
 use crate::record::Record;
 use crate::types::{Number, Value};
+
+use crate::grammar::program_parser;
+use chumsky::Parser;
 
 pub struct Program {
     rules: Vec<Rule>,
@@ -28,6 +29,10 @@ impl Program {
         };
         s.inject_bulitins();
         s
+    }
+
+    pub fn compile(source: &str) -> Vec<Rule> {
+        program_parser().parse(source).unwrap()
     }
 
     pub fn set_field_names(&mut self, field_names: Vec<String>) {
@@ -119,39 +124,17 @@ impl Program {
 #[cfg(test)]
 mod test {
     use super::*;
-    use chumsky::Parser;
-
-    use crate::grammar::program_parser;
 
     #[test]
     fn test_simple() {
-        let rules = program_parser().parse(r#"
-            put(nr(), @0);
-            (nr() % 3 == 0) -> put("fizz");
-            (nr() % 5 == 0) -> put("buzz");
-        "#).unwrap();
+        let rules = program_parser().parse(r#"@3 = n@1 + n@2, put(nr(), @0)"#).unwrap();
         let mut prog = Program::new(",".to_owned(), "\n".to_owned());
         prog.push_rules(rules);
 
-        prog.consume(Record::from("hello".to_owned(), ","));
-        prog.consume(Record::from("there".to_owned(), ","));
-        prog.consume(Record::from("general".to_owned(), ","));
-        prog.consume(Record::from("kenobi".to_owned(), ","));
-        prog.consume(Record::from("you".to_owned(), ","));
-        prog.consume(Record::from("are".to_owned(), ","));
-        prog.consume(Record::from("a".to_owned(), ","));
-        prog.consume(Record::from("bold".to_owned(), ","));
-        prog.consume(Record::from("one".to_owned(), ","));
-        prog.consume(Record::from("that".to_owned(), ","));
-        prog.consume(Record::from("was".to_owned(), ","));
-        prog.consume(Record::from("the".to_owned(), ","));
-        prog.consume(Record::from("quote".to_owned(), ","));
-        prog.consume(Record::from("but".to_owned(), ","));
-        prog.consume(Record::from("i".to_owned(), ","));
-        prog.consume(Record::from("need".to_owned(), ","));
-        prog.consume(Record::from("more".to_owned(), ","));
-        prog.consume(Record::from("lines".to_owned(), ","));
+        prog.consume(Record::from("1,2".to_owned(), ","));
+        assert_eq!(prog.last_output(), "1,1,2,3\n".to_owned());
 
-        // println!("{}", prog.copy_output());
+        prog.consume(Record::from("4,-0.5".to_owned(), ","));
+        assert_eq!(prog.last_output(), "2,4,-0.5,3.5\n".to_owned());
     }
 }

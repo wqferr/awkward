@@ -65,7 +65,7 @@ impl Record {
     }
 
     pub fn set(&mut self, n: usize, s: String) {
-        for _ in self.fields.len()..=n {
+        for _ in self.fields.len()..n {
             self.fields.push("".to_owned());
         }
         self.fields[n-1] = s;

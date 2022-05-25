@@ -59,7 +59,7 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
             )
             .map(|(f, args)| Expr::FnCall(f, args));
 
-        let var = 
+        let field = 
             just('n')
             .or_not()
             .then_ignore(just('@'))
@@ -69,10 +69,30 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
             )
             .map(|(t, id)| {
                 match t {
-                    Some('n') => Expr::NumVar(id),
-                    _ => Expr::StrVar(id)
+                    Some('n') => Expr::NumField(id),
+                    _ => Expr::StrField(id)
                 }
             });
+
+        let var = text::ident().map(Expr::Var);
+
+        let field_assignment =
+            just('@')
+            .ignore_then(
+                text::int(10).map(|x: String| FieldId::Idx(x.parse::<usize>().unwrap()))
+                .or(text::ident().map(|name| FieldId::Name(name)))
+            )
+            .then_ignore(
+                just('=').padded()
+            )
+            .then(expr.clone())
+            .map(|(id, e)| Expr::FieldAssign(id, Box::new(e)));
+
+        let var_assignment =
+            text::ident()
+            .then_ignore(just('=').padded())
+            .then(expr.clone())
+            .map(|(name, e)| Expr::VarAssign(name, Box::new(e)));
 
         // let start = text::keyword("start").to(Expr::Start);
         // let end = text::keyword("end").to(Expr::End);
@@ -116,12 +136,15 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
         let atom =
             choice((
                 num,
-                expr.delimited_by(just('('), just(')')),
-                var,
-                call,
                 bool_lit,
                 string_dq,
                 string_sq,
+                expr.delimited_by(just('('), just(')')),
+                field_assignment,
+                var_assignment,
+                call,
+                field,
+                var,
                 // start,
                 // end,
                 regex
@@ -215,11 +238,6 @@ pub fn program_parser() -> impl Parser<char, Vec<Rule>, Error=Simple<char>> {
         .then(
             expr
             .separated_by(just(','))
-            // .then(
-            //     just(',')
-            //     .ignore_then(expr)
-            //     .repeated()
-            // )
         )
         .map(|(pat, actions)| {
             Rule::new(
@@ -271,6 +289,7 @@ mod test {
         let mut ctx = EvaluationContext::new(",".to_owned());
         ctx.set_field_names(vec!["first".to_owned(), "second".to_owned(), "third".to_owned()]);
         ctx.register_builtin("double", double);
+        ctx.set_var("my_var".to_owned(), Value::Num(5.into()));
         ctx.set_current_record(r);
 
         let res = expr_parser().parse(expr);
@@ -364,6 +383,22 @@ mod test {
         assert_eq!(simple_eval("/lo/@second"), Value::Bool(false));
         assert_eq!(simple_eval("/lo/@third"), Value::Bool(true));
         assert_eq!(simple_eval("/^lo/@third"), Value::Bool(true));
+    }
+
+    #[test]
+    fn test_vars() {
+        assert_eq!(simple_eval("anime = false"), Value::Bool(false));
+        assert_eq!(simple_eval("four = 2 + 2"), Value::Num(4.into()));
+        assert_eq!(simple_eval("1 + my_var * 2"), Value::Num(11.into()));
+        assert_eq!(simple_eval("my_var > 3"), Value::Bool(true));
+    }
+
+    #[test]
+    fn test_field_assign() {
+        let e = expr_parser().parse("@3 = n@1 + n@2");
+        if let Expr::FieldAssign(id, _) = e.unwrap() {
+            assert_eq!(id, FieldId::Idx(3));
+        }
     }
 
     #[test]
