@@ -1,12 +1,9 @@
 mod record;
-use std::fs::File;
 use std::fs::read_to_string;
 use std::io::BufRead;
-use std::io::BufReader;
 use std::io::Write;
 use std::io::stdin;
 use std::io::stdout;
-use grammar::program_parser;
 
 use clap::Parser;
 use clap::ValueHint;
@@ -21,9 +18,9 @@ mod expr;
 mod program;
 
 #[cfg(windows)]
-const DEFAULT_LINE_ENDING: &'static str = "\r\n";
+const DEFAULT_LINE_ENDING: &str = "\r\n";
 #[cfg(not(windows))]
-const DEFAULT_LINE_ENDING: &'static str = "\n";
+const DEFAULT_LINE_ENDING: &str = "\n";
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -110,7 +107,11 @@ fn main() -> anyhow::Result<()> {
     let mut input = sin.lock();
     let mut output = sout.lock();
 
-    // TODO header
+    if args.header {
+        let mut field_names = Record::read(&mut input, &ifs)?;
+        field_names.process(false, true);
+        prog.set_field_names(field_names.into_iter().collect());
+    }
     loop {
         let mut record = Record::read(&mut input, &ifs)?;
 

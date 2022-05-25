@@ -17,7 +17,7 @@ pub enum Expr {
     NumLiteral(Number),
     BoolLiteral(bool),
 
-    FnCall(String, Vec<Expr>),
+    FnCall{ name: String, args: Vec<Expr> },
 
     Neg(Box<Expr>),
     Add(Box<Expr>, Box<Expr>),
@@ -39,9 +39,6 @@ pub enum Expr {
     Or(Box<Expr>, Box<Expr>),
     Not(Box<Expr>),
 
-    // Start,
-    // HasRecord,
-    // End,
     RegexSearch{ re: Regex, field: FieldId }
 }
 
@@ -51,9 +48,7 @@ pub struct EvaluationContext {
     field_names: HashMap<String, usize>,
 
     functions: HashMap<String, BuiltinFunction>,
-    variables: HashMap<String, Value>,
-
-    parsing_state: ParsingStage
+    variables: HashMap<String, Value>
 }
 
 #[derive(Debug, Clone)]
@@ -66,13 +61,6 @@ pub struct Rule {
 pub enum FieldId {
     Name(String),
     Idx(usize)
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum ParsingStage {
-    Start,
-    Processing,
-    End
 }
 
 impl Expr {
@@ -122,7 +110,7 @@ impl Expr {
             VarAssign(name, expr) => {
                 let result = expr.eval(ctx);
                 ctx.variables.insert(name.clone(), result.clone());
-                result.clone()
+                result
             },
     
             StrLiteral(s) => Value::Str(s.clone()),
@@ -161,22 +149,18 @@ impl Expr {
             And(x, y) => Value::Bool(x.eval_bool(ctx) && y.eval_bool(ctx)),
             Or(x, y) => Value::Bool(x.eval_bool(ctx) || y.eval_bool(ctx)),
             Not(x) => Value::Bool(!x.eval_bool(ctx)),
-            FnCall(fname, args) => {
+            FnCall {name, args} => {
                 // TODO check if function exists
                 let mut vargs = vec![];
                 for a in args {
                     vargs.push(a.eval(ctx));
                 }
-                if !ctx.functions.contains_key(fname) {
-                    panic!("unknown function: {}", fname);
+                if !ctx.functions.contains_key(name) {
+                    panic!("unknown function: {}", name);
                 }
-                let f = ctx.functions.get_mut(fname).unwrap();
+                let f = ctx.functions.get_mut(name).unwrap();
                 f(vargs)
             },
-    
-            // Start => Value::Bool(ctx.parsing_state == ParsingStage::Start),
-            // HasRecord => Value::Bool(ctx.parsing_state == ParsingStage::Processing),
-            // End => Value::Bool(ctx.parsing_state == ParsingStage::End),
             RegexSearch { re, field } => {
                 let field_idx = match field {
                     FieldId::Name(name) => ctx.field_names[name],
@@ -247,9 +231,7 @@ impl EvaluationContext {
             field_names: HashMap::new(),
 
             functions: HashMap::new(),
-            variables: HashMap::new(),
-
-            parsing_state: ParsingStage::Start
+            variables: HashMap::new()
         }
     }
 
@@ -269,15 +251,9 @@ impl EvaluationContext {
 
     pub fn set_current_record(&mut self, r: Record) {
         self.current_record = Some(r);
-        self.parsing_state = ParsingStage::Processing;
     }
 
     pub fn ofs(&self) -> &str {
         self.ofs.as_str()
     }
-
-    // pub fn finish_parsing(&mut self) {
-    //     self.current_record = None;
-    //     self.parsing_state = ParsingStage::End;
-    // }
 }

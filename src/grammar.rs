@@ -57,7 +57,7 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
                     .allow_trailing()
                     .delimited_by(just('('), just(')'))
             )
-            .map(|(f, args)| Expr::FnCall(f, args));
+            .map(|(name, args)| Expr::FnCall {name, args});
 
         let field = 
             just('n')
@@ -256,10 +256,8 @@ pub fn program_parser() -> impl Parser<char, Vec<Rule>, Error=Simple<char>> {
         )
         .map(|(d, vd): (Rule, Vec<Option<Rule>>)| {
             let mut v = vec![d];
-            for other in vd.into_iter() {
-                if let Some(other) = other {
-                    v.push(other);
-                }
+            for other in vd.into_iter().flatten() {
+                v.push(other);
             }
             v
         });
