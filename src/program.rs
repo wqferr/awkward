@@ -1,23 +1,26 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::expr::{Rule, EvaluationContext};
+use crate::expr::{EvaluationContext, Rule};
 use crate::record::Record;
 use crate::types::{Number, Value};
 
 use crate::grammar::program_parser;
 use chumsky::Parser;
 
+/// Program holds the logic to be run in a Record and holds the output
 pub struct Program {
     rules: Vec<Rule>,
     state: EvaluationContext,
     record_terminator: String,
 
     output: Rc<RefCell<String>>,
-    record_number: Rc<RefCell<usize>>
+    record_number: Rc<RefCell<usize>>,
 }
 
 impl Program {
+    /// `ofs` Output Field Separator
+    /// `ors` Output Record Separator
     pub fn new(ofs: String, ors: String) -> Self {
         let mut s = Self {
             rules: vec![],
@@ -25,7 +28,7 @@ impl Program {
             record_terminator: ors,
             output: Rc::new(RefCell::new(String::new())),
 
-            record_number: Rc::new(RefCell::new(0usize))
+            record_number: Rc::new(RefCell::new(0usize)),
         };
         s.inject_bulitins();
         s
@@ -42,7 +45,7 @@ impl Program {
     pub fn register_builtin<F: 'static + FnMut(Vec<Value>) -> Value>(&mut self, name: &str, f: F) {
         self.state.register_builtin(name, f);
     }
-    
+
     pub fn field_separator(&self) -> &str {
         self.state.ofs()
     }
@@ -55,26 +58,21 @@ impl Program {
         self.rules.extend(rules.into_iter());
     }
 
+    /// TODO docs - this adds user builtin functions to the Program execution?
     fn inject_bulitins(&mut self) {
         let output = self.output.clone();
         let ors = self.record_terminator.clone();
         let ofs = self.state.ofs().to_owned();
         self.register_builtin("put", move |args: Vec<Value>| {
             for v in args.iter() {
-                let line_empty = output.borrow().is_empty()
-                    || output
-                        .borrow()
-                        .ends_with(ors.as_str());
-                
+                let line_empty =
+                    output.borrow().is_empty() || output.borrow().ends_with(ors.as_str());
+
                 if !line_empty {
-                    output
-                        .borrow_mut()
-                        .push_str(ofs.as_str())
+                    output.borrow_mut().push_str(ofs.as_str())
                 }
 
-                output
-                    .borrow_mut()
-                    .push_str(format!("{}", v).as_str());
+                output.borrow_mut().push_str(format!("{}", v).as_str());
             }
             Value::Bool(true)
         });
@@ -98,7 +96,7 @@ impl Program {
             Value::Bool(true)
         });
     }
-
+    /// Consumes a Record, executing rules if they match, updates the Program's state and output
     pub fn consume(&mut self, record: Record) {
         self.output.borrow_mut().clear();
 
@@ -107,7 +105,8 @@ impl Program {
         for d in self.rules.iter() {
             d.execute_if_applies(&mut self.state);
         }
-        self.output.borrow_mut()
+        self.output
+            .borrow_mut()
             .push_str(self.record_terminator.as_str());
     }
 
@@ -127,7 +126,9 @@ mod test {
 
     #[test]
     fn test_simple() {
-        let rules = program_parser().parse(r#"@3 = n@1 + n@2, put(nr(), @0)"#).unwrap();
+        let rules = program_parser()
+            .parse(r#"@3 = n@1 + n@2, put(nr(), @0)"#)
+            .unwrap();
         let mut prog = Program::new(",".to_owned(), "\n".to_owned());
         prog.push_rules(rules);
 

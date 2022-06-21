@@ -15,27 +15,27 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone)]
+/// Record represents a single line of read input.
+///
+/// A Record stores the fields that compose the line, as well as the original string of that line (i.e. including separators)
 pub struct Record {
     original_string: String,
-    fields: Vec<String>
+    fields: Vec<String>,
 }
 
 impl Record {
     pub fn from(s: String, field_sep: &str) -> Self {
-        let fields = s
-            .split(field_sep)
-            .map(|x| x.to_owned())
-            .collect();
+        let fields = s.split(field_sep).map(|x| x.to_owned()).collect();
         Self {
             original_string: s,
-            fields: fields
+            fields: fields,
         }
     }
 
     pub fn empty() -> Self {
         Self {
             original_string: "".to_owned(),
-            fields: vec![]
+            fields: vec![],
         }
     }
 
@@ -49,11 +49,10 @@ impl Record {
         self.fields.join(field_sep)
     }
 
+    /// Skips blank fields and/or trims fields.
     pub fn process(&mut self, skip_blanks: bool, trim: bool) {
-        let mut processed: Box<dyn Iterator<Item=&str>> = Box::new(
-            self.fields.iter()
-                .map(|s| s.as_str())
-        );
+        let mut processed: Box<dyn Iterator<Item = &str>> =
+            Box::new(self.fields.iter().map(|s| s.as_str()));
         if skip_blanks {
             processed = Box::new(processed.filter(|&x| !x.is_empty()));
         }
@@ -68,7 +67,7 @@ impl Record {
         for _ in self.fields.len()..n {
             self.fields.push("".to_owned());
         }
-        self.fields[n-1] = s;
+        self.fields[n - 1] = s;
     }
 
     pub fn has_field(&self, idx: usize) -> bool {
@@ -83,14 +82,16 @@ impl Record {
         if !self.has_field(n) {
             return Err(Error::NoSuchField(n));
         }
-        Ok(self.fields[n-1].as_str())
+        Ok(self.fields[n - 1].as_str())
     }
 
     pub fn nth_num(&self, n: usize) -> Result<Number> {
         if !self.has_field(n) {
             return Err(Error::NoSuchField(n));
         }
-        self.fields[n-1].parse::<Number>().map_err(|_| Error::NumberParseFailure)
+        self.fields[n - 1]
+            .parse::<Number>()
+            .map_err(|_| Error::NumberParseFailure)
     }
 
     pub fn original_string(&self) -> &str {

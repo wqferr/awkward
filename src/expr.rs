@@ -1,9 +1,10 @@
-use std::collections::HashMap;
-use regex::Regex;
 use crate::record::Record;
-use crate::types::{Value, Number, BuiltinFunction};
+use crate::types::{BuiltinFunction, Number, Value};
+use regex::Regex;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
+/// Awkward's syntax tree definition
 pub enum Expr {
     StrField(FieldId),
     NumField(FieldId),
@@ -42,7 +43,7 @@ pub enum Expr {
     // Start,
     // HasRecord,
     // End,
-    RegexSearch{ re: Regex, field: FieldId }
+    RegexSearch { re: Regex, field: FieldId },
 }
 
 pub struct EvaluationContext {
@@ -53,26 +54,26 @@ pub struct EvaluationContext {
     functions: HashMap<String, BuiltinFunction>,
     variables: HashMap<String, Value>,
 
-    parsing_state: ParsingStage
+    parsing_state: ParsingStage,
 }
 
 #[derive(Debug, Clone)]
 pub struct Rule {
     pattern: Expr,
-    actions: Vec<Expr>
+    actions: Vec<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldId {
     Name(String),
-    Idx(usize)
+    Idx(usize),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ParsingStage {
     Start,
     Processing,
-    End
+    End,
 }
 
 impl Expr {
@@ -86,14 +87,18 @@ impl Expr {
                 };
                 if idx == 0 {
                     // ctx.current_record.as
-                    Value::Str(
-                        ctx.current_record.as_ref().unwrap()
-                            .join(ctx.ofs.as_str())
-                    )
+                    Value::Str(ctx.current_record.as_ref().unwrap().join(ctx.ofs.as_str()))
                 } else {
-                    Value::Str(ctx.current_record.as_ref().unwrap().nth_str(idx).unwrap_or("").to_owned())
+                    Value::Str(
+                        ctx.current_record
+                            .as_ref()
+                            .unwrap()
+                            .nth_str(idx)
+                            .unwrap_or("")
+                            .to_owned(),
+                    )
                 }
-            },
+            }
             NumField(field_id) => {
                 let idx = match field_id {
                     FieldId::Name(name) => ctx.field_names[name],
@@ -101,34 +106,32 @@ impl Expr {
                 };
                 let rec = ctx.current_record.as_ref().unwrap();
                 Value::Num(rec.nth_num(idx).unwrap().to_owned())
-            },
+            }
 
             FieldAssign(id, expr) => {
                 let result = expr.eval(ctx);
                 let idx = match id {
                     FieldId::Idx(idx) => idx,
-                    FieldId::Name(name) => ctx.field_names.get(name).unwrap()
+                    FieldId::Name(name) => ctx.field_names.get(name).unwrap(),
                 };
-                ctx.current_record.as_mut().unwrap()
+                ctx.current_record
+                    .as_mut()
+                    .unwrap()
                     .set(*idx, result.to_string());
                 result
-            },
+            }
 
-            Var(name) => {
-                ctx.variables.get(name)
-                    .unwrap()
-                    .clone()
-            },
+            Var(name) => ctx.variables.get(name).unwrap().clone(),
             VarAssign(name, expr) => {
                 let result = expr.eval(ctx);
                 ctx.variables.insert(name.clone(), result.clone());
                 result.clone()
-            },
-    
+            }
+
             StrLiteral(s) => Value::Str(s.clone()),
             NumLiteral(n) => Value::Num(n.clone()),
             BoolLiteral(b) => Value::Bool(*b),
-    
+
             Neg(x) => Value::Num(-x.eval_num(ctx)),
             Add(x, y) => Value::Num(x.eval_num(ctx) + y.eval_num(ctx)),
             Sub(x, y) => Value::Num(x.eval_num(ctx) - y.eval_num(ctx)),
@@ -139,25 +142,25 @@ impl Expr {
                 let mut s1 = x.eval_str(ctx);
                 let s2 = y.eval_str(ctx);
                 s1.push_str(s2.as_str());
-    
+
                 Value::Str(s1)
-            },
+            }
             ConcatWSep(x, y) => {
                 let mut s1 = x.eval_str(ctx);
                 let s2 = y.eval_str(ctx);
                 s1.push_str(ctx.ofs.as_str());
                 s1.push_str(s2.as_str());
-    
+
                 Value::Str(s1)
-            },
-    
+            }
+
             Eq(x, y) => Value::Bool(x.eval(ctx) == y.eval(ctx)),
             Ineq(x, y) => Value::Bool(x.eval(ctx) != y.eval(ctx)),
             Greater(x, y) => Value::Bool(x.eval_num(ctx) > y.eval_num(ctx)),
             GreaterEq(x, y) => Value::Bool(x.eval_num(ctx) >= y.eval_num(ctx)),
             Lesser(x, y) => Value::Bool(x.eval_num(ctx) < y.eval_num(ctx)),
             LesserEq(x, y) => Value::Bool(x.eval_num(ctx) <= y.eval_num(ctx)),
-    
+
             And(x, y) => Value::Bool(x.eval_bool(ctx) && y.eval_bool(ctx)),
             Or(x, y) => Value::Bool(x.eval_bool(ctx) || y.eval_bool(ctx)),
             Not(x) => Value::Bool(!x.eval_bool(ctx)),
@@ -172,8 +175,8 @@ impl Expr {
                 }
                 let f = ctx.functions.get_mut(fname).unwrap();
                 f(vargs)
-            },
-    
+            }
+
             // Start => Value::Bool(ctx.parsing_state == ParsingStage::Start),
             // HasRecord => Value::Bool(ctx.parsing_state == ParsingStage::Processing),
             // End => Value::Bool(ctx.parsing_state == ParsingStage::End),
@@ -189,29 +192,27 @@ impl Expr {
                 } else {
                     r.field(field_idx)
                 };
-                Value::Bool(
-                    re.find(s).is_some()
-                )
+                Value::Bool(re.find(s).is_some())
             }
         }
     }
-    
+
     pub fn eval_num(&self, ctx: &mut EvaluationContext) -> Number {
         match self.eval(ctx) {
             Value::Num(x) => x,
             Value::Str(s) => panic!("Expected number, found string `{}`", s),
-            Value::Bool(b) => panic!("Expected number, found bool `{}`", b)
+            Value::Bool(b) => panic!("Expected number, found bool `{}`", b),
         }
     }
-    
+
     pub fn eval_bool(&self, ctx: &mut EvaluationContext) -> bool {
         match self.eval(ctx) {
             Value::Bool(b) => b,
             Value::Str(s) => panic!("Expected bool, found string `{}`", s),
-            Value::Num(x) => panic!("Expected bool, found number `{}`", x)
+            Value::Num(x) => panic!("Expected bool, found number `{}`", x),
         }
     }
-    
+
     pub fn eval_str(&self, ctx: &mut EvaluationContext) -> String {
         format!("{}", self.eval(ctx))
     }
@@ -249,13 +250,13 @@ impl EvaluationContext {
             functions: HashMap::new(),
             variables: HashMap::new(),
 
-            parsing_state: ParsingStage::Start
+            parsing_state: ParsingStage::Start,
         }
     }
 
     pub fn set_field_names(&mut self, header: Vec<String>) {
         for (i, field_name) in header.into_iter().enumerate() {
-            self.field_names.insert(field_name, i+1);
+            self.field_names.insert(field_name, i + 1);
         }
     }
 
