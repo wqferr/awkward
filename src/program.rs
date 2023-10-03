@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::rc::Rc;
 
 use crate::expr::{Rule, EvaluationContext};
 use crate::record::Record;
@@ -13,8 +12,8 @@ pub struct Program {
     state: EvaluationContext,
     record_terminator: String,
 
-    output: Rc<RefCell<String>>,
-    record_number: Rc<RefCell<usize>>,
+    output: RefCell<String>,
+    record_number: RefCell<usize>,
 }
 
 impl Program {
@@ -23,9 +22,9 @@ impl Program {
             rules: vec![],
             state: EvaluationContext::new(ofs),
             record_terminator: ors,
-            output: Rc::new(RefCell::new(String::new())),
+            output: RefCell::new(String::new()),
 
-            record_number: Rc::new(RefCell::new(0usize))
+            record_number: RefCell::new(0usize)
         };
         s.inject_bulitins();
         s
@@ -56,29 +55,6 @@ impl Program {
     }
 
     fn inject_bulitins(&mut self) {
-        // let output = self.output.clone();
-        // let ors = self.record_terminator.clone();
-        // let ofs = self.state.ofs().to_owned();
-        // self.register_builtin("put", move |args: Vec<Value>| {
-        //     for v in args.iter() {
-        //         let line_empty = output.borrow().is_empty()
-        //             || output
-        //                 .borrow()
-        //                 .ends_with(ors.as_str());
-        //
-        //         if !line_empty {
-        //             output
-        //                 .borrow_mut()
-        //                 .push_str(ofs.as_str())
-        //         }
-        //
-        //         output
-        //             .borrow_mut()
-        //             .push_str(format!("{}", v).as_str());
-        //     }
-        //     Value::Bool(true)
-        // });
-
         let record_number = self.record_number.clone();
         self.register_builtin("nr", move |_| {
             let num = Number::from_num(*record_number.borrow());
@@ -104,6 +80,29 @@ impl Program {
             }
             Value::Bool(true)
         });
+
+        let variables = self.state.variables().clone();
+        self.register_builtin("isvar", move |args| {
+            let id = &args[0];
+            if let Value::Str(name) = id {
+                Value::Bool(variables.borrow().contains_key(name))
+            } else {
+                Value::Bool(false)
+            }
+        });
+
+        let field_names = self.state.field_names().clone();
+        let current_record = self.state.current_record().clone();
+        self.register_builtin("isfield", move |args| {
+            let id = &args[0];
+            if let Value::Str(name) = id {
+                Value::Bool(field_names.borrow().contains_key(name))
+            } else if let Value::Num(idx) = id {
+                Value::Bool(idx.frac() == 0 && idx <= &current_record.borrow().len())
+            } else {
+                Value::Bool(false)
+            }
+        });
     }
 
     pub fn consume(&mut self, record: Record) {
@@ -122,10 +121,6 @@ impl Program {
         output_borrow.push_str(&record_str);
         output_borrow
             .push_str(self.record_terminator.as_str());
-    }
-
-    pub fn process(&mut self, record: Record) {
-        self.consume(record);
     }
 
     pub fn last_output(&self) -> String {

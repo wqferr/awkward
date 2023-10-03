@@ -1,4 +1,3 @@
-use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use regex::Regex;
@@ -47,12 +46,12 @@ pub enum Expr {
 }
 
 pub struct EvaluationContext {
-    current_record: Rc<RefCell<Record>>,
+    current_record: RefCell<Record>,
     ofs: String,
-    field_names: HashMap<String, usize>,
+    field_names: RefCell<HashMap<String, usize>>,
 
     functions: HashMap<String, BuiltinFunction>,
-    variables: HashMap<String, Value>
+    variables: RefCell<HashMap<String, Value>>
 }
 
 #[derive(Debug, Clone)]
@@ -73,7 +72,7 @@ impl Expr {
         match self {
             StrField(field_id) => {
                 let idx = match field_id {
-                    FieldId::Name(name) => ctx.field_names[name],
+                    FieldId::Name(name) => ctx.field_names.borrow()[name],
                     FieldId::Idx(idx) => *idx,
                 };
                 if idx == 0 {
@@ -94,7 +93,7 @@ impl Expr {
             },
             NumField(field_id) => {
                 let idx = match field_id {
-                    FieldId::Name(name) => ctx.field_names[name],
+                    FieldId::Name(name) => ctx.field_names.borrow()[name],
                     FieldId::Idx(idx) => *idx,
                 };
                 let rec = ctx.current_record.borrow();
@@ -107,7 +106,7 @@ impl Expr {
             },
             BoolField(field_id) => {
                 let idx = match field_id {
-                    FieldId::Name(name) => ctx.field_names[name],
+                    FieldId::Name(name) => ctx.field_names.borrow()[name],
                     FieldId::Idx(idx) => *idx
                 };
                 let rec = ctx.current_record.borrow();
@@ -122,19 +121,20 @@ impl Expr {
             FieldAssign(id, expr) => {
                 let result = expr.eval(ctx);
                 let idx = match id {
-                    FieldId::Idx(idx) => idx,
-                    FieldId::Name(name) => ctx.field_names.get(name).unwrap(),
+                    FieldId::Idx(idx) => idx.clone(),
+                    FieldId::Name(name) => ctx.field_names.borrow()[name].clone(),
                 };
                 ctx.current_record
                     .borrow_mut()
-                    .set(*idx, result.to_string());
+                    .set(idx, result.to_string());
                 result
             },
 
             Var(name) => {
                 ctx.variables
+                    .borrow()
                     .get(name)
-                    .unwrap()
+                    .unwrap_or(&Value::Str(String::from("")))
                     .clone()
             },
             VarAssign(name, expr) => {
@@ -145,11 +145,11 @@ impl Expr {
 
             Deletion(id) => {
                 if let FieldId::Name(name) = id  {
-                    if ctx.field_names.contains_key(name) {
-                        let idx = ctx.field_names.get(name).unwrap();
-                        Value::Bool(ctx.current_record.borrow_mut().try_delete_field(*idx))
+                    if ctx.field_names.borrow().contains_key(name) {
+                        let idx = ctx.field_names.borrow().get(name).unwrap().clone();
+                        Value::Bool(ctx.current_record.borrow_mut().try_delete_field(idx))
                     } else {
-                        Value::Bool(ctx.variables.remove(name).is_some())
+                        Value::Bool(ctx.variables.borrow_mut().remove(name).is_some())
                     }
                 } else if let FieldId::Idx(idx) = id {
                     if idx > &0 {
@@ -215,7 +215,7 @@ impl Expr {
             },
             RegexSearch { re, field } => {
                 let field_idx = match field {
-                    FieldId::Name(name) => ctx.field_names[name],
+                    FieldId::Name(name) => ctx.field_names.borrow()[name],
                     FieldId::Idx(idx) => *idx,
                 };
                 let r = ctx.current_record.borrow();
@@ -243,8 +243,10 @@ impl Expr {
     pub fn eval_bool(&self, ctx: &mut EvaluationContext) -> bool {
         match self.eval(ctx) {
             Value::Bool(b) => b,
-            Value::Str(s) => panic!("Expected bool, found string `{}`", s),
-            Value::Num(x) => panic!("Expected bool, found number `{}`", x)
+            // Value::Str(s) => panic!("Expected bool, found string `{}`", s),
+            // Value::Num(x) => panic!("Expected bool, found number `{}`", x)
+            Value::Str(s) => s != "",
+            Value::Num(x) => x > 0
         }
     }
 
@@ -257,10 +259,6 @@ impl Rule {
     pub fn new(pattern: Expr, actions: Vec<Expr>) -> Self {
         Self { pattern, actions }
     }
-
-    // pub fn set_pattern(&mut self, new: Expr) {
-    //     self.pattern = new;
-    // }
 
     pub fn applies(&self, ctx: &mut EvaluationContext) -> bool {
         self.pattern.eval_bool(ctx)
@@ -278,18 +276,22 @@ impl Rule {
 impl EvaluationContext {
     pub fn new(ofs: String) -> Self {
         Self {
-            current_record: Rc::new(RefCell::new(Record::empty())),
+            current_record: RefCell::new(Record::empty()),
             ofs,
-            field_names: HashMap::new(),
+            field_names: RefCell::new(HashMap::new()),
 
             functions: HashMap::new(),
-            variables: HashMap::new()
+            variables: RefCell::new(HashMap::new())
         }
+    }
+
+    pub fn field_names(&self) -> &RefCell<HashMap<String, usize>> {
+        &self.field_names
     }
 
     pub fn set_field_names(&mut self, header: Vec<String>) {
         for (i, field_name) in header.into_iter().enumerate() {
-            self.field_names.insert(field_name, i+1);
+            self.field_names.borrow_mut().insert(field_name, i+1);
         }
     }
 
@@ -298,18 +300,22 @@ impl EvaluationContext {
     }
 
     pub fn set_var(&mut self, name: String, v: Value) {
-        self.variables.insert(name, v);
+        self.variables.borrow_mut().insert(name, v);
     }
 
     pub fn set_current_record(&mut self, r: Record) {
         *self.current_record.borrow_mut() = r;
     }
 
-    pub fn current_record(&self) -> Rc<RefCell<Record>> {
+    pub fn current_record(&self) -> RefCell<Record> {
         self.current_record.clone()
     }
 
     pub fn ofs(&self) -> &str {
         self.ofs.as_str()
+    }
+
+    pub fn variables(&self) -> &RefCell<HashMap<String, Value>> {
+        &self.variables
     }
 }
