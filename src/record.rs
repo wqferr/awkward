@@ -68,10 +68,21 @@ impl Record {
     }
 
     pub fn set(&mut self, n: usize, s: String) {
-        for _ in self.fields.len()..n {
-            self.fields.push("".to_owned());
+        if n == 0 {
+            self.fields[0] = s;
+            while self.fields.len() > 1 {
+                self.fields.pop();
+            }
+        } else {
+            for _ in self.fields.len()..n {
+                self.fields.push("".to_owned());
+            }
+            self.fields[n-1] = s;
         }
-        self.fields[n-1] = s;
+    }
+
+    pub fn push_field(&mut self, s: String) {
+        self.fields.push(s)
     }
 
     pub fn has_field(&self, idx: usize) -> bool {

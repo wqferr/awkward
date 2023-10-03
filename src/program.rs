@@ -14,7 +14,7 @@ pub struct Program {
     record_terminator: String,
 
     output: Rc<RefCell<String>>,
-    record_number: Rc<RefCell<usize>>
+    record_number: Rc<RefCell<usize>>,
 }
 
 impl Program {
@@ -43,11 +43,11 @@ impl Program {
         self.state.register_builtin(name, f);
     }
     
-    pub fn field_separator(&self) -> &str {
+    pub fn output_field_separator(&self) -> &str {
         self.state.ofs()
     }
 
-    pub fn record_terminator(&self) -> &str {
+    pub fn output_record_terminator(&self) -> &str {
         self.record_terminator.as_str()
     }
 
@@ -56,45 +56,46 @@ impl Program {
     }
 
     fn inject_bulitins(&mut self) {
-        let output = self.output.clone();
-        let ors = self.record_terminator.clone();
-        let ofs = self.state.ofs().to_owned();
-        self.register_builtin("put", move |args: Vec<Value>| {
-            for v in args.iter() {
-                let line_empty = output.borrow().is_empty()
-                    || output
-                        .borrow()
-                        .ends_with(ors.as_str());
-                
-                if !line_empty {
-                    output
-                        .borrow_mut()
-                        .push_str(ofs.as_str())
-                }
-
-                output
-                    .borrow_mut()
-                    .push_str(format!("{}", v).as_str());
-            }
-            Value::Bool(true)
-        });
+        // let output = self.output.clone();
+        // let ors = self.record_terminator.clone();
+        // let ofs = self.state.ofs().to_owned();
+        // self.register_builtin("put", move |args: Vec<Value>| {
+        //     for v in args.iter() {
+        //         let line_empty = output.borrow().is_empty()
+        //             || output
+        //                 .borrow()
+        //                 .ends_with(ors.as_str());
+        //
+        //         if !line_empty {
+        //             output
+        //                 .borrow_mut()
+        //                 .push_str(ofs.as_str())
+        //         }
+        //
+        //         output
+        //             .borrow_mut()
+        //             .push_str(format!("{}", v).as_str());
+        //     }
+        //     Value::Bool(true)
+        // });
 
         let record_number = self.record_number.clone();
-        self.register_builtin("nr", move |_args: Vec<Value>| {
+        self.register_builtin("nr", move |_| {
             let num = Number::from_num(*record_number.borrow());
             Value::Num(num)
         });
 
-        let separator = self.field_separator().to_owned();
+        let separator = self.output_field_separator().to_owned();
         self.register_builtin("ofs", move |_| Value::Str(separator.clone()));
 
-        let terminator = self.record_terminator().to_owned();
+        let terminator = self.output_record_terminator().to_owned();
         self.register_builtin("ors", move |_| Value::Str(terminator.clone()));
 
-        let output = self.output.clone();
-        let ors = self.record_terminator().to_owned();
-        self.register_builtin("newrec", move |_| {
-            output.borrow_mut().push_str(ors.as_str());
+        let current_record = self.state.current_record().clone();
+        self.register_builtin("push", move |fields| {
+            for field in fields.iter() {
+                current_record.borrow_mut().push_field(field.to_string());
+            }
             Value::Bool(true)
         });
     }
@@ -107,13 +108,18 @@ impl Program {
         for d in self.rules.iter() {
             d.execute_if_applies(&mut self.state);
         }
-        self.output.borrow_mut()
+        let mut output_borrow = self.output.borrow_mut();
+        let record_str = self.state
+            .current_record()
+            .borrow()
+            .join(self.output_field_separator());
+        output_borrow.push_str(&record_str);
+        output_borrow
             .push_str(self.record_terminator.as_str());
     }
 
-    pub fn process(&mut self, record: Record) -> String {
+    pub fn process(&mut self, record: Record) {
         self.consume(record);
-        self.last_output()
     }
 
     pub fn last_output(&self) -> String {

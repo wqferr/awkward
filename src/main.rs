@@ -65,7 +65,7 @@ struct Args {
     #[clap(
         long,
         short = 'H',
-        help = "Whether to skip the first record and interpret it as field names; TODO how can you reference these?"
+        help = "Whether to skip the first record and interpret it as field names;"
     )]
     header: bool,
 

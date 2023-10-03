@@ -70,6 +70,7 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
             .map(|(t, id)| {
                 match t {
                     Some('n') => Expr::NumField(id),
+                    Some('b') => Expr::BoolField(id),
                     _ => Expr::StrField(id)
                 }
             });

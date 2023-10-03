@@ -1,3 +1,5 @@
+use std::rc::Rc;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use regex::Regex;
 use crate::record::Record;
@@ -43,7 +45,7 @@ pub enum Expr {
 }
 
 pub struct EvaluationContext {
-    current_record: Option<Record>,
+    current_record: Rc<RefCell<Record>>,
     ofs: String,
     field_names: HashMap<String, usize>,
 
@@ -75,15 +77,13 @@ impl Expr {
                 if idx == 0 {
                     Value::Str(
                         ctx.current_record
-                            .as_ref()
-                            .unwrap()
+                            .borrow()
                             .join(ctx.ofs.as_str())
                     )
                 } else {
                     Value::Str(
                         ctx.current_record
-                            .as_ref()
-                            .unwrap()
+                            .borrow()
                             .nth_str(idx)
                             .unwrap_or("")
                             .to_owned()
@@ -95,7 +95,7 @@ impl Expr {
                     FieldId::Name(name) => ctx.field_names[name],
                     FieldId::Idx(idx) => *idx,
                 };
-                let rec = ctx.current_record.as_ref().unwrap();
+                let rec = ctx.current_record.borrow();
                 Value::Num(
                     rec
                         .nth_num(idx)
@@ -108,7 +108,7 @@ impl Expr {
                     FieldId::Name(name) => ctx.field_names[name],
                     FieldId::Idx(idx) => *idx
                 };
-                let rec = ctx.current_record.as_ref().unwrap();
+                let rec = ctx.current_record.borrow();
                 Value::Bool(
                     rec
                         .nth_bool(idx)
@@ -124,8 +124,7 @@ impl Expr {
                     FieldId::Name(name) => ctx.field_names.get(name).unwrap(),
                 };
                 ctx.current_record
-                    .as_mut()
-                    .unwrap()
+                    .borrow_mut()
                     .set(*idx, result.to_string());
                 result
             },
@@ -179,7 +178,6 @@ impl Expr {
             Or(x, y)=> Value::Bool(x.eval_bool(ctx) || y.eval_bool(ctx)),
             Not(x) => Value::Bool(!x.eval_bool(ctx)),
             FnCall { name, args } => {
-                // TODO check if function exists
                 let mut vargs = vec![];
                 for a in args {
                     vargs.push(a.eval(ctx));
@@ -195,7 +193,7 @@ impl Expr {
                     FieldId::Name(name) => ctx.field_names[name],
                     FieldId::Idx(idx) => *idx,
                 };
-                let r = ctx.current_record.as_ref().unwrap();
+                let r = ctx.current_record.borrow();
                 let s = if field_idx == 0 {
                     // search whole record if field is 0
                     r.original_string()
@@ -255,7 +253,7 @@ impl Rule {
 impl EvaluationContext {
     pub fn new(ofs: String) -> Self {
         Self {
-            current_record: None,
+            current_record: Rc::new(RefCell::new(Record::empty())),
             ofs,
             field_names: HashMap::new(),
 
@@ -279,7 +277,11 @@ impl EvaluationContext {
     }
 
     pub fn set_current_record(&mut self, r: Record) {
-        self.current_record = Some(r);
+        *self.current_record.borrow_mut() = r;
+    }
+
+    pub fn current_record(&self) -> Rc<RefCell<Record>> {
+        self.current_record.clone()
     }
 
     pub fn ofs(&self) -> &str {
