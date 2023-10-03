@@ -65,7 +65,7 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
             .then_ignore(just('@'))
             .then(
                 text::int(10).map(|x: String| FieldId::Idx(x.parse::<usize>().unwrap()))
-                .or(text::ident().map(|n| FieldId::Name(n)))
+                .or(text::ident().map(FieldId::Name))
             )
             .map(|(t, id)| {
                 match t {
@@ -80,7 +80,7 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
             just('@')
             .ignore_then(
                 text::int(10).map(|x: String| FieldId::Idx(x.parse::<usize>().unwrap()))
-                .or(text::ident().map(|name| FieldId::Name(name)))
+                .or(text::ident().map(FieldId::Name))
             )
             .then_ignore(
                 just('=').padded()
@@ -217,15 +217,15 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
             .foldl(|lhs, (_op, rhs)| Expr::And(Box::new(lhs), Box::new(rhs)));
 
         // boolean or
-        let or = and.clone()
+        
+
+        and.clone()
             .then(
                 double_char_op('|', '|')
                 .then(and)
                 .repeated()
             )
-            .foldl(|lhs, (_op, rhs)| Expr::Or(Box::new(lhs), Box::new(rhs)));
-
-        or
+            .foldl(|lhs, (_op, rhs)| Expr::Or(Box::new(lhs), Box::new(rhs)))
     })
 }
 
@@ -435,10 +435,10 @@ mod test {
         let putline = move |vs: Vec<Value>| {
             for v in vs.iter() {
                 if !*line_is_empty.borrow() {
-                    write!(buf.borrow_mut(), "\n").unwrap();
+                    writeln!(buf.borrow_mut()).unwrap();
                     *line_is_empty.borrow_mut() = true;
                 }
-                write!(buf.borrow_mut(), "{}\n", v).unwrap();
+                writeln!(buf.borrow_mut(), "{}", v).unwrap();
             }
             Value::Bool(true)
         };

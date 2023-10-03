@@ -18,7 +18,7 @@ maintenance = {status = "experimental"}
 [dependencies]
 clap = { version = "3.1.6", features = ["derive", "env"] }
 anyhow = "1.0"
-thiserror = "1.0"
-chumsky = "0.8"
+thiserror = "1.0.49"
+chumsky = "0.9"
 fixed = "1.14"
 regex = "1.5.5"

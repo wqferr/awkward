@@ -8,7 +8,7 @@ use std::io::stdout;
 use clap::Parser;
 use clap::ValueHint;
 
-use anyhow;
+
 use program::Program;
 use record::Record;
 

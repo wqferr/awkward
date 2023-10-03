@@ -1,0 +1,68 @@
+# allow comments
+
+# follow awk's pattern/action structure?
+# if so, probably ditch {} and use , between statements, and
+# ; at the end of the block
+@1/^thing$/ -> assert(@1 == "thing")
+
+
+# Patterns
+# quote from https://linux.die.net/man/1/awk :
+# AWK patterns may be one of the following:
+#   - BEGIN
+#   - END
+#   - /regular expression/
+#   - relational expression
+#   - pattern && pattern
+#   - pattern || pattern
+#   pattern ? pattern : pattern
+#   - (pattern)
+#   - ! pattern
+#   pattern1, pattern2 (range pattern)
+#
+# of all of the above, only ternary operator seems iffy to me
+
+# Control statements
+# quote from https://linux.die.net/man/1/awk :
+# The control statements are as follows:
+#   if (condition) statement [ else statement ]
+#   while (condition) statement
+#   do statement while (condition)
+#   for (expr1; expr2; expr3) statement
+#   for (var in array) statement
+#   break
+#   continue
+#   delete array[index]
+#   delete array
+#   -> exit [ expression ]
+#   -> { statements }
+
+
+# /happy/ should be equivalent to @0/happy/
+/happy/ -> @1 = ";", @2 = n@2 + 1;
+
+
+# basic arithmetic
+# plus creating columns if index doesnt exist
+(n@1 > n@2) -> @3 = 1 + (n@1 + n@2) / 2;
+
+# and/or creating columns like this maybe?
+append(n@3 * 2);
+
+
+# removing columns either as a statement like this
+# NOT IMPLEMENTED YET
+del @2;
+
+# or function like this?
+del(2);
+
+# probably not like this because consistency would dictate this
+# passed the value in column 2 to del, not a reference to column 2.
+# or maybe i'm the one being an old stubborn man
+# del(@2);
+
+
+# in place modifications is set (maybe set it as default?)
+# print @0 at the end of the script automatically
+print(@0)

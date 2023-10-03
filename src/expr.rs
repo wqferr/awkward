@@ -7,7 +7,7 @@ use crate::types::{Value, Number, BuiltinFunction};
 pub enum Expr {
     StrField(FieldId),
     NumField(FieldId),
-    // BoolField?
+    BoolField(FieldId),
     FieldAssign(FieldId, Box<Expr>),
 
     Var(String),
@@ -73,13 +73,21 @@ impl Expr {
                     FieldId::Idx(idx) => *idx,
                 };
                 if idx == 0 {
-                    // ctx.current_record.as
                     Value::Str(
-                        ctx.current_record.as_ref().unwrap()
+                        ctx.current_record
+                            .as_ref()
+                            .unwrap()
                             .join(ctx.ofs.as_str())
                     )
                 } else {
-                    Value::Str(ctx.current_record.as_ref().unwrap().nth_str(idx).unwrap_or("").to_owned())
+                    Value::Str(
+                        ctx.current_record
+                            .as_ref()
+                            .unwrap()
+                            .nth_str(idx)
+                            .unwrap_or("")
+                            .to_owned()
+                    )
                 }
             },
             NumField(field_id) => {
@@ -88,35 +96,56 @@ impl Expr {
                     FieldId::Idx(idx) => *idx,
                 };
                 let rec = ctx.current_record.as_ref().unwrap();
-                Value::Num(rec.nth_num(idx).unwrap().to_owned())
+                Value::Num(
+                    rec
+                        .nth_num(idx)
+                        .unwrap()
+                        .to_owned()
+                )
+            },
+            BoolField(field_id) => {
+                let idx = match field_id {
+                    FieldId::Name(name) => ctx.field_names[name],
+                    FieldId::Idx(idx) => *idx
+                };
+                let rec = ctx.current_record.as_ref().unwrap();
+                Value::Bool(
+                    rec
+                        .nth_bool(idx)
+                        .unwrap()
+                        .to_owned()
+                )
             },
 
             FieldAssign(id, expr) => {
                 let result = expr.eval(ctx);
                 let idx = match id {
                     FieldId::Idx(idx) => idx,
-                    FieldId::Name(name) => ctx.field_names.get(name).unwrap()
+                    FieldId::Name(name) => ctx.field_names.get(name).unwrap(),
                 };
-                ctx.current_record.as_mut().unwrap()
+                ctx.current_record
+                    .as_mut()
+                    .unwrap()
                     .set(*idx, result.to_string());
                 result
             },
 
             Var(name) => {
-                ctx.variables.get(name)
+                ctx.variables
+                    .get(name)
                     .unwrap()
                     .clone()
             },
             VarAssign(name, expr) => {
                 let result = expr.eval(ctx);
-                ctx.variables.insert(name.clone(), result.clone());
+                ctx.set_var(name.clone(), result.clone());
                 result
             },
-    
+
             StrLiteral(s) => Value::Str(s.clone()),
-            NumLiteral(n) => Value::Num(n.clone()),
+            NumLiteral(n) => Value::Num(*n),
             BoolLiteral(b) => Value::Bool(*b),
-    
+
             Neg(x) => Value::Num(-x.eval_num(ctx)),
             Add(x, y) => Value::Num(x.eval_num(ctx) + y.eval_num(ctx)),
             Sub(x, y) => Value::Num(x.eval_num(ctx) - y.eval_num(ctx)),
@@ -127,7 +156,7 @@ impl Expr {
                 let mut s1 = x.eval_str(ctx);
                 let s2 = y.eval_str(ctx);
                 s1.push_str(s2.as_str());
-    
+
                 Value::Str(s1)
             },
             ConcatWSep(x, y) => {
@@ -135,21 +164,21 @@ impl Expr {
                 let s2 = y.eval_str(ctx);
                 s1.push_str(ctx.ofs.as_str());
                 s1.push_str(s2.as_str());
-    
+
                 Value::Str(s1)
             },
-    
+
             Eq(x, y) => Value::Bool(x.eval(ctx) == y.eval(ctx)),
             Ineq(x, y) => Value::Bool(x.eval(ctx) != y.eval(ctx)),
             Greater(x, y) => Value::Bool(x.eval_num(ctx) > y.eval_num(ctx)),
             GreaterEq(x, y) => Value::Bool(x.eval_num(ctx) >= y.eval_num(ctx)),
             Lesser(x, y) => Value::Bool(x.eval_num(ctx) < y.eval_num(ctx)),
             LesserEq(x, y) => Value::Bool(x.eval_num(ctx) <= y.eval_num(ctx)),
-    
+
             And(x, y) => Value::Bool(x.eval_bool(ctx) && y.eval_bool(ctx)),
-            Or(x, y) => Value::Bool(x.eval_bool(ctx) || y.eval_bool(ctx)),
+            Or(x, y)=> Value::Bool(x.eval_bool(ctx) || y.eval_bool(ctx)),
             Not(x) => Value::Bool(!x.eval_bool(ctx)),
-            FnCall {name, args} => {
+            FnCall { name, args } => {
                 // TODO check if function exists
                 let mut vargs = vec![];
                 for a in args {
@@ -179,7 +208,7 @@ impl Expr {
             }
         }
     }
-    
+
     pub fn eval_num(&self, ctx: &mut EvaluationContext) -> Number {
         match self.eval(ctx) {
             Value::Num(x) => x,
@@ -187,7 +216,7 @@ impl Expr {
             Value::Bool(b) => panic!("Expected number, found bool `{}`", b)
         }
     }
-    
+
     pub fn eval_bool(&self, ctx: &mut EvaluationContext) -> bool {
         match self.eval(ctx) {
             Value::Bool(b) => b,
@@ -195,7 +224,7 @@ impl Expr {
             Value::Num(x) => panic!("Expected bool, found number `{}`", x)
         }
     }
-    
+
     pub fn eval_str(&self, ctx: &mut EvaluationContext) -> String {
         format!("{}", self.eval(ctx))
     }
@@ -206,9 +235,9 @@ impl Rule {
         Self { pattern, actions }
     }
 
-    pub fn set_pattern(&mut self, new: Expr) {
-        self.pattern = new;
-    }
+    // pub fn set_pattern(&mut self, new: Expr) {
+    //     self.pattern = new;
+    // }
 
     pub fn applies(&self, ctx: &mut EvaluationContext) -> bool {
         self.pattern.eval_bool(ctx)

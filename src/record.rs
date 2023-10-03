@@ -1,4 +1,4 @@
-use std::io::{BufRead, Write};
+use std::io::BufRead;
 use thiserror::Error;
 
 use super::types::Number;
@@ -7,6 +7,9 @@ use super::types::Number;
 pub enum Error {
     #[error("field could not be parsed as a number")]
     NumberParseFailure,
+
+    #[error("field could not be parsed as a bool")]
+    BoolParseFailure,
 
     #[error("field with index {0} does not exist")]
     NoSuchField(usize),
@@ -28,7 +31,7 @@ impl Record {
             .collect();
         Self {
             original_string: s,
-            fields: fields
+            fields
         }
     }
 
@@ -93,8 +96,19 @@ impl Record {
         self.fields[n-1].parse::<Number>().map_err(|_| Error::NumberParseFailure)
     }
 
+    pub fn nth_bool(&self, n: usize) -> Result<bool> {
+        if !self.has_field(n) {
+            return Err(Error::NoSuchField(n));
+        }
+        match self.fields[n-1].as_str() {
+            "true" => Ok(true),
+            "false" => Ok(false),
+            _ => Err(Error::BoolParseFailure)
+        }
+    }
+
     pub fn original_string(&self) -> &str {
-        &self.original_string.as_str()
+        self.original_string.as_str()
     }
 
     pub fn len(&self) -> usize {
