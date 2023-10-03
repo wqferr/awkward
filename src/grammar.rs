@@ -95,6 +95,15 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
             .then(expr.clone())
             .map(|(name, e)| Expr::VarAssign(name, Box::new(e)));
 
+        let var_or_field_deletion =
+            just("del").padded()
+            .then(just('@'))
+            .ignore_then(
+                text::int(10).map(|x: String| FieldId::Idx(x.parse::<usize>().unwrap()))
+                .or(text::ident().map(FieldId::Name))
+            )
+            .map(|id| Expr::Deletion(id));
+
         // let start = text::keyword("start").to(Expr::Start);
         // let end = text::keyword("end").to(Expr::End);
         let regex = 
@@ -143,6 +152,7 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
                 expr.delimited_by(just('('), just(')')),
                 field_assignment,
                 var_assignment,
+                var_or_field_deletion,
                 call,
                 field,
                 var,
@@ -218,8 +228,6 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
             .foldl(|lhs, (_op, rhs)| Expr::And(Box::new(lhs), Box::new(rhs)));
 
         // boolean or
-        
-
         and.clone()
             .then(
                 double_char_op('|', '|')

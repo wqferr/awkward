@@ -1,3 +1,3 @@
-(nr() % 2 == 0) -> push("pizzaz");
-(nr() % 3 == 0) -> push("fizz");
-(nr() % 5 == 0) -> push("buzz");
+(n@1 % 3 == 0) -> push("fizz");
+(n@1 % 5 == 0) -> push("buzz");
+(nc() > 1) -> del @1;

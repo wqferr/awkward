@@ -15,6 +15,8 @@ pub enum Expr {
     Var(String),
     VarAssign(String, Box<Expr>),
 
+    Deletion(FieldId),
+
     StrLiteral(String),
     NumLiteral(Number),
     BoolLiteral(bool),
@@ -139,6 +141,29 @@ impl Expr {
                 let result = expr.eval(ctx);
                 ctx.set_var(name.clone(), result.clone());
                 result
+            },
+
+            Deletion(id) => {
+                if let FieldId::Name(name) = id  {
+                    if ctx.field_names.contains_key(name) {
+                        let idx = ctx.field_names.get(name).unwrap();
+                        Value::Bool(ctx.current_record.borrow_mut().try_delete_field(*idx))
+                    } else {
+                        Value::Bool(ctx.variables.remove(name).is_some())
+                    }
+                } else if let FieldId::Idx(idx) = id {
+                    if idx > &0 {
+                        Value::Bool(ctx.current_record.borrow_mut().try_delete_field(*idx))
+                    } else {
+                        while ctx.current_record.borrow().len() > 0 {
+                            let len = ctx.current_record().borrow().len();
+                            ctx.current_record.borrow_mut().try_delete_field(len);
+                        }
+                        Value::Bool(true)
+                    }
+                } else {
+                    panic!("this should never be reached: deletion on a non-string, non-index field id");
+                }
             },
 
             StrLiteral(s) => Value::Str(s.clone()),

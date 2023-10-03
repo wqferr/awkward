@@ -85,6 +85,12 @@ impl Program {
             Value::Num(num)
         });
 
+        let current_record = self.state.current_record().clone();
+        self.register_builtin("nc", move |_| {
+            let num = Number::from_num(current_record.borrow().len());
+            Value::Num(num)
+        });
+
         let separator = self.output_field_separator().to_owned();
         self.register_builtin("ofs", move |_| Value::Str(separator.clone()));
 

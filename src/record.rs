@@ -89,6 +89,15 @@ impl Record {
         idx > 0 && idx <= self.fields.len()
     }
 
+    pub fn try_delete_field(&mut self, idx: usize) -> bool {
+        if self.has_field(idx) {
+            self.fields.remove(idx-1);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn field(&self, n: usize) -> &str {
         self.nth_str(n).unwrap_or("")
     }
