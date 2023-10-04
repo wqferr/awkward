@@ -91,7 +91,7 @@ impl Program {
             }
         });
 
-        // TODO fix field names with inserted fields
+        // TODO fix field names with inserted / deleted fields
         // TODO insert function
         // TODO new record function
 
@@ -113,18 +113,18 @@ impl Program {
         self.output.borrow_mut().clear();
 
         self.state.set_current_record(record);
+        self.state.reset_field_names();
         *self.record_number.borrow_mut() += 1;
         for d in self.rules.iter() {
             d.execute_if_applies(&mut self.state);
         }
-        let mut output_borrow = self.output.borrow_mut();
         let record_str = self.state
             .current_record()
             .borrow()
             .join(self.output_field_separator());
+        let mut output_borrow = self.output.borrow_mut();
         output_borrow.push_str(&record_str);
-        output_borrow
-            .push_str(self.record_terminator.as_str());
+        output_borrow.push_str(self.record_terminator.as_str());
     }
 
     pub fn last_output(&self) -> String {

@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use regex::Regex;
 use crate::record::Record;
 use crate::types::{Value, Number, BuiltinFunction};
@@ -14,7 +14,7 @@ pub enum Expr {
     Var(String),
     VarAssign(String, Box<Expr>),
 
-    Deletion(FieldId),
+    Delete(Vec<FieldId>),
     Keep(Vec<FieldId>),
 
     StrLiteral(String),
@@ -49,7 +49,7 @@ pub enum Expr {
 pub struct EvaluationContext {
     current_record: RefCell<Record>,
     ofs: String,
-    field_names: RefCell<HashMap<String, usize>>,
+    initial_field_names: RefCell<HashMap<String, usize>>,
 
     functions: HashMap<String, BuiltinFunction>,
     variables: RefCell<HashMap<String, Value>>
@@ -72,29 +72,30 @@ impl Expr {
         use Expr::*;
         match self {
             StrField(field_id) => {
-                let idx = match field_id {
-                    FieldId::Name(name) => ctx.field_names.borrow()[name],
-                    FieldId::Idx(idx) => *idx,
-                };
-                if idx == 0 {
-                    Value::Str(
-                        ctx.current_record
-                            .borrow()
-                            .join(ctx.ofs.as_str())
-                    )
-                } else {
-                    Value::Str(
-                        ctx.current_record
-                            .borrow()
-                            .nth_str(idx)
-                            .unwrap_or("")
-                            .to_owned()
-                    )
-                }
+                Value::Str(ctx.current_record.borrow().get_possibly_entire_record(field_id, ctx.ofs.as_str()).to_string())
+                // let idx = match field_id {
+                //     FieldId::Name(name) => ctx.initial_field_names.borrow()[name],
+                //     FieldId::Idx(idx) => *idx,
+                // };
+                // if idx == 0 {
+                //     Value::Str(
+                //         ctx.current_record
+                //             .borrow()
+                //             .join(ctx.ofs.as_str())
+                //     )
+                // } else {
+                //     Value::Str(
+                //         ctx.current_record
+                //             .borrow()
+                //             .nth_str(idx)
+                //             .unwrap_or("")
+                //             .to_owned()
+                //     )
+                // }
             },
             NumField(field_id) => {
                 let idx = match field_id {
-                    FieldId::Name(name) => ctx.field_names.borrow()[name],
+                    FieldId::Name(name) => ctx.initial_field_names.borrow()[name],
                     FieldId::Idx(idx) => *idx,
                 };
                 let rec = ctx.current_record.borrow();
@@ -107,7 +108,7 @@ impl Expr {
             },
             BoolField(field_id) => {
                 let idx = match field_id {
-                    FieldId::Name(name) => ctx.field_names.borrow()[name],
+                    FieldId::Name(name) => ctx.initial_field_names.borrow()[name],
                     FieldId::Idx(idx) => *idx
                 };
                 let rec = ctx.current_record.borrow();
@@ -123,11 +124,11 @@ impl Expr {
                 let result = expr.eval(ctx);
                 let idx = match id {
                     FieldId::Idx(idx) => idx.clone(),
-                    FieldId::Name(name) => ctx.field_names.borrow()[name].clone(),
+                    FieldId::Name(name) => ctx.initial_field_names.borrow()[name].clone(),
                 };
                 ctx.current_record
                     .borrow_mut()
-                    .set(idx, result.to_string());
+                    .set(&FieldId::Idx(idx), result.to_string());
                 result
             },
 
@@ -144,46 +145,30 @@ impl Expr {
                 result
             },
 
-            Deletion(id) => {
-                if let FieldId::Name(name) = id  {
-                    if ctx.field_names.borrow().contains_key(name) {
-                        let idx = ctx.field_names.borrow().get(name).unwrap().clone();
-                        Value::Bool(ctx.current_record.borrow_mut().try_delete_field(idx))
-                    } else {
-                        Value::Bool(ctx.variables.borrow_mut().remove(name).is_some())
-                    }
-                } else if let FieldId::Idx(idx) = id {
-                    if idx > &0 {
-                        Value::Bool(ctx.current_record.borrow_mut().try_delete_field(*idx))
-                    } else {
-                        while ctx.current_record.borrow().len() > 0 {
-                            let len = ctx.current_record.borrow().len();
-                            ctx.current_record.borrow_mut().try_delete_field(len);
-                        }
-                        Value::Bool(true)
-                    }
-                } else {
-                    panic!("this should never be reached: deletion on a non-string, non-index field id");
-                }
+            Delete(ids) => {
+                ctx.current_record.borrow_mut().drop_all(ids.as_slice());
+                Value::Bool(true)
             },
 
-            Keep(fields_to_keep) => {
-                let mut indices_to_keep = HashSet::with_capacity(fields_to_keep.len());
-                for field_id in fields_to_keep.iter() {
-                    indices_to_keep.insert(
-                        match field_id {
-                            FieldId::Name(name) => ctx.field_names().borrow()[name],
-                            FieldId::Idx(idx) => idx.clone()
-                        }
-                    );
-                }
-                let len = ctx.current_record.borrow().len();
-                for i in (1..len+1).rev() {
-                    if !indices_to_keep.contains(&i) {
-                        ctx.current_record.borrow_mut().remove_field(i);
-                    }
-                }
+            Keep(ids) => {
+                ctx.current_record.borrow_mut().drop_all_but(ids.as_slice());
                 Value::Bool(true)
+                // let mut indices_to_keep = HashSet::with_capacity(fields_to_keep.len());
+                // for field_id in fields_to_keep.iter() {
+                //     indices_to_keep.insert(
+                //         match field_id {
+                //             FieldId::Name(name) => ctx.field_names().borrow()[name],
+                //             FieldId::Idx(idx) => idx.clone()
+                //         }
+                //     );
+                // }
+                // let len = ctx.current_record.borrow().len();
+                // for i in (1..len+1).rev() {
+                //     if !indices_to_keep.contains(&i) {
+                //         ctx.current_record.borrow_mut().remove_field(i);
+                //     }
+                // }
+                // Value::Bool(true)
             },
 
             StrLiteral(s) => Value::Str(s.clone()),
@@ -235,7 +220,7 @@ impl Expr {
             },
             RegexSearch { re, field } => {
                 let field_idx = match field {
-                    FieldId::Name(name) => ctx.field_names.borrow()[name],
+                    FieldId::Name(name) => ctx.initial_field_names.borrow()[name],
                     FieldId::Idx(idx) => *idx,
                 };
                 let r = ctx.current_record.borrow();
@@ -243,7 +228,7 @@ impl Expr {
                     // search whole record if field is 0
                     r.original_string()
                 } else {
-                    r.field(field_idx)
+                    r.get(&FieldId::Idx(field_idx))
                 };
                 Value::Bool(
                     re.find(s).is_some()
@@ -298,21 +283,27 @@ impl EvaluationContext {
         Self {
             current_record: RefCell::new(Record::empty()),
             ofs,
-            field_names: RefCell::new(HashMap::new()),
+            initial_field_names: RefCell::new(HashMap::new()),
 
             functions: HashMap::new(),
             variables: RefCell::new(HashMap::new())
         }
     }
 
+    pub fn reset_field_names(&mut self) {
+        for (k, v) in self.initial_field_names.borrow().iter() {
+            self.current_record().borrow_mut().set_field_name(k.clone(), *v);
+        }
+    }
+
     pub fn field_names(&self) -> &RefCell<HashMap<String, usize>> {
-        &self.field_names
+        &self.initial_field_names
     }
 
     pub fn set_field_names(&mut self, header: Vec<String>) {
         for (i, field_name) in header.into_iter().enumerate() {
             if field_name.len() > 0 {
-                self.field_names.borrow_mut().insert(field_name, i+1);
+                self.initial_field_names.borrow_mut().insert(field_name, i+1);
             }
         }
     }

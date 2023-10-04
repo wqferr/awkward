@@ -5,7 +5,7 @@ use crate::expr::{Expr, Rule, FieldId};
 
 
 fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
-    
+
     // This grammar was adapted from Chumsky's tutorial
 
     recursive(|expr| {
@@ -49,7 +49,7 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
 
         let string_dq = quoted_str('"');
         let string_sq = quoted_str('\'');
-        
+
         let call =
             text::ident().then(
                 expr.clone()
@@ -59,7 +59,7 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
             )
             .map(|(name, args)| Expr::FnCall {name, args});
 
-        let field = 
+        let field =
             just('n')
             .or_not()
             .then_ignore(just('@'))
@@ -96,13 +96,15 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
             .map(|(name, e)| Expr::VarAssign(name, Box::new(e)));
 
         let var_or_field_deletion =
-            just("del").padded()
-            .then(just('@'))
+            just("drop").padded()
             .ignore_then(
-                text::int(10).map(|x: String| FieldId::Idx(x.parse::<usize>().unwrap()))
-                .or(text::ident().map(FieldId::Name))
+                just('@').ignore_then(
+                    text::int(10).map(|x: String| FieldId::Idx(x.parse::<usize>().unwrap()))
+                    .or(text::ident().map(FieldId::Name))
+                )
+                .separated_by(just(',').padded())
             )
-            .map(|id| Expr::Deletion(id));
+            .map(|ids| Expr::Delete(ids));
 
         let keep =
             just("keep").padded()
@@ -118,7 +120,7 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
 
         // let start = text::keyword("start").to(Expr::Start);
         // let end = text::keyword("end").to(Expr::End);
-        let regex = 
+        let regex =
             just('/')
             .ignore_then(
                 filter(move |c| *c != '\\' && *c != '/')
@@ -173,13 +175,13 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
                 // end,
                 regex
             )).padded();
-    
+
         // operators with a single char
         let op = |c| just(c).padded();
-    
+
         // operators with 2 chars
         let double_char_op = |c1, c2| just(c1).then(just(c2)).padded();
-    
+
         // unary minus
         let unary =
             op('-').to(Expr::Neg as fn(_) -> _)
@@ -187,7 +189,7 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
             .repeated()
             .then(atom)
             .foldr(|op, rhs| op(Box::new(rhs)));
-    
+
         // product / division / mod
         let product = unary.clone()
             .then(
@@ -200,7 +202,7 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
                 .repeated()
             )
             .foldl(|lhs, (op, rhs)| op(Box::new(lhs), Box::new(rhs)));
-    
+
         // add / subtract
         let sum = product.clone()
             .then(
