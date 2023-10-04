@@ -114,8 +114,9 @@ impl Program {
         self.state.set_current_record(record);
         self.state.reset_field_names();
         *self.record_number.borrow_mut() += 1;
-        for d in self.rules.iter() {
-            d.execute_if_applies(&mut self.state);
+        let mut last_condition_matched = true;
+        for r in self.rules.iter() {
+            r.execute_if_applies(&mut last_condition_matched, &mut self.state);
         }
         let record_str = self.state
             .current_record()

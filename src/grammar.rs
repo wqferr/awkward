@@ -1,8 +1,7 @@
 use chumsky::prelude::*;
 use regex::Regex;
 
-use crate::expr::{Expr, Rule, FieldId};
-
+use crate::expr::{Expr, Rule, FieldId, RuleCondition};
 
 fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
 
@@ -255,21 +254,39 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
 
 pub fn program_parser() -> impl Parser<char, Vec<Rule>, Error=Simple<char>> {
     let expr = expr_parser();
+
     let rule =
-        expr.clone()
-        .then_ignore(just("->"))
-        .or_not()
-        .then(
-            expr
-            .separated_by(just(','))
+        just("else").ignored().map(|()| RuleCondition::Else)
+        // duplicate arrow parser because otherwise it thinks the - is a unary minus for an expression
+        .then_ignore(just("->").padded())
+        .or(
+            expr.clone()
+                .map(|e| RuleCondition::Expression(e))
+                .then_ignore(just("->"))
         )
-        .map(|(pat, actions)| {
+        .or_not()
+        .then(expr.separated_by(just(',')))
+        .map(|(cond, actions)| {
             Rule::new(
-                // if pattern is omitted, execute for every record after it's started
-                pat.unwrap_or(Expr::BoolLiteral(true)),
+                cond.unwrap_or(RuleCondition::Expression(Expr::BoolLiteral(true))),
                 actions
             )
         });
+    // let rule =
+    //     expr.clone()
+    //     .then_ignore(just("->"))
+    //     .or_not()
+    //     .then(
+    //         expr
+    //         .separated_by(just(','))
+    //     )
+    //     .map(|(pat, actions)| {
+    //         Rule::new(
+    //             // if pattern is omitted, execute for every record after it's started
+    //             pat.unwrap_or(Expr::BoolLiteral(true)),
+    //             actions
+    //         )
+    //     });
 
     let program =
         rule.clone()
@@ -477,16 +494,18 @@ mod test {
         (*record_number_original.borrow_mut()) += 1;
         (*line_is_empty_original.borrow_mut()) = true;
         ctx.set_current_record(Record::from("hello,there".to_owned(), ","));
+        let mut last_rule_matched = true;
         for d in rules.iter() {
-            d.execute_if_applies(&mut ctx);
+            d.execute_if_applies(&mut last_rule_matched, &mut ctx);
         }
         (*buf_original.borrow_mut()).write_char('\n').unwrap();
 
         (*record_number_original.borrow_mut()) += 1;
         (*line_is_empty_original.borrow_mut()) = true;
         ctx.set_current_record(Record::from("general,kenobi".to_owned(), ","));
+        let mut last_rule_matched = true;
         for d in rules.iter() {
-            d.execute_if_applies(&mut ctx);
+            d.execute_if_applies(&mut last_rule_matched, &mut ctx);
         }
         (*buf_original.borrow_mut()).write_char('\n').unwrap();
 

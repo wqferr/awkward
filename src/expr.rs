@@ -57,8 +57,14 @@ pub struct EvaluationContext {
 }
 
 #[derive(Debug, Clone)]
+pub enum RuleCondition {
+    Expression(Expr),
+    Else
+}
+
+#[derive(Debug, Clone)]
 pub struct Rule {
-    pattern: Expr,
+    condition: RuleCondition,
     actions: Vec<Expr>
 }
 
@@ -96,17 +102,6 @@ impl Expr {
                 Value::Bool(
                     ctx.current_record.borrow().bool_at(field_id).unwrap()
                 )
-                // let idx = match field_id {
-                //     FieldId::Name(name) => ctx.initial_field_names.borrow()[name],
-                //     FieldId::Idx(idx) => *idx
-                // };
-                // let rec = ctx.current_record.borrow();
-                // Value::Bool(
-                //     rec
-                //         .nth_bool(idx)
-                //         .unwrap()
-                //         .to_owned()
-                // )
             },
 
             FieldAssign(id, expr) => {
@@ -228,19 +223,25 @@ impl Expr {
 }
 
 impl Rule {
-    pub fn new(pattern: Expr, actions: Vec<Expr>) -> Self {
-        Self { pattern, actions }
+    pub fn new(condition: RuleCondition, actions: Vec<Expr>) -> Self {
+        Self { condition, actions }
     }
 
-    pub fn applies(&self, ctx: &mut EvaluationContext) -> bool {
-        self.pattern.eval_bool(ctx)
+    pub fn applies(&self, last_condition_matched: &bool, ctx: &mut EvaluationContext) -> bool {
+        match &self.condition {
+            RuleCondition::Else => !last_condition_matched,
+            RuleCondition::Expression(expr) => expr.eval_bool(ctx)
+        }
     }
 
-    pub fn execute_if_applies(&self, ctx: &mut EvaluationContext) {
-        if self.applies(ctx) {
+    pub fn execute_if_applies(&self, last_condition_matched: &mut bool, ctx: &mut EvaluationContext) {
+        if self.applies(last_condition_matched, ctx) {
             for action in self.actions.iter() {
                 action.eval(ctx);
             }
+            *last_condition_matched = true;
+        } else {
+            *last_condition_matched = false;
         }
     }
 }
