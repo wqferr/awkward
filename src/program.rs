@@ -91,7 +91,6 @@ impl Program {
             }
         });
 
-        // TODO fix field names with inserted / deleted fields
         // TODO insert function
         // TODO new record function
 

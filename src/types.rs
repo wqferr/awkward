@@ -15,6 +15,16 @@ pub enum Value {
     Bool(bool)
 }
 
+impl Value {
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            Value::Bool(b) => b.clone(),
+            Value::Str(s) => s.as_str() != "",
+            Value::Num(x) => x > &0
+        }
+    }
+}
+
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use Value::*;

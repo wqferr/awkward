@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt::Display;
 use regex::Regex;
 use crate::record::Record;
 use crate::types::{Value, Number, BuiltinFunction};
@@ -67,57 +68,45 @@ pub enum FieldId {
     Idx(usize)
 }
 
+impl Display for FieldId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FieldId::Name(name) => write!(f, "\"{}\"", name),
+            FieldId::Idx(idx) => write!(f, "{}", idx)
+        }
+    }
+}
+
 impl Expr {
     pub fn eval(&self, ctx: &mut EvaluationContext) -> Value {
         use Expr::*;
         match self {
             StrField(field_id) => {
-                Value::Str(ctx.current_record.borrow().get_possibly_entire_record(field_id, ctx.ofs.as_str()).to_string())
-                // let idx = match field_id {
-                //     FieldId::Name(name) => ctx.initial_field_names.borrow()[name],
-                //     FieldId::Idx(idx) => *idx,
-                // };
-                // if idx == 0 {
-                //     Value::Str(
-                //         ctx.current_record
-                //             .borrow()
-                //             .join(ctx.ofs.as_str())
-                //     )
-                // } else {
-                //     Value::Str(
-                //         ctx.current_record
-                //             .borrow()
-                //             .nth_str(idx)
-                //             .unwrap_or("")
-                //             .to_owned()
-                //     )
-                // }
+                Value::Str(
+                    ctx.current_record.borrow()
+                        .get_possibly_entire_record(field_id, ctx.ofs.as_str())
+                        .to_string())
             },
             NumField(field_id) => {
-                let idx = match field_id {
-                    FieldId::Name(name) => ctx.initial_field_names.borrow()[name],
-                    FieldId::Idx(idx) => *idx,
-                };
-                let rec = ctx.current_record.borrow();
                 Value::Num(
-                    rec
-                        .nth_num(idx)
-                        .unwrap()
-                        .to_owned()
+                    ctx.current_record.borrow().num_at(field_id).unwrap()
                 )
             },
             BoolField(field_id) => {
-                let idx = match field_id {
-                    FieldId::Name(name) => ctx.initial_field_names.borrow()[name],
-                    FieldId::Idx(idx) => *idx
-                };
-                let rec = ctx.current_record.borrow();
                 Value::Bool(
-                    rec
-                        .nth_bool(idx)
-                        .unwrap()
-                        .to_owned()
+                    ctx.current_record.borrow().bool_at(field_id).unwrap()
                 )
+                // let idx = match field_id {
+                //     FieldId::Name(name) => ctx.initial_field_names.borrow()[name],
+                //     FieldId::Idx(idx) => *idx
+                // };
+                // let rec = ctx.current_record.borrow();
+                // Value::Bool(
+                //     rec
+                //         .nth_bool(idx)
+                //         .unwrap()
+                //         .to_owned()
+                // )
             },
 
             FieldAssign(id, expr) => {
@@ -153,22 +142,6 @@ impl Expr {
             Keep(ids) => {
                 ctx.current_record.borrow_mut().drop_all_but(ids.as_slice());
                 Value::Bool(true)
-                // let mut indices_to_keep = HashSet::with_capacity(fields_to_keep.len());
-                // for field_id in fields_to_keep.iter() {
-                //     indices_to_keep.insert(
-                //         match field_id {
-                //             FieldId::Name(name) => ctx.field_names().borrow()[name],
-                //             FieldId::Idx(idx) => idx.clone()
-                //         }
-                //     );
-                // }
-                // let len = ctx.current_record.borrow().len();
-                // for i in (1..len+1).rev() {
-                //     if !indices_to_keep.contains(&i) {
-                //         ctx.current_record.borrow_mut().remove_field(i);
-                //     }
-                // }
-                // Value::Bool(true)
             },
 
             StrLiteral(s) => Value::Str(s.clone()),
@@ -246,13 +219,7 @@ impl Expr {
     }
 
     pub fn eval_bool(&self, ctx: &mut EvaluationContext) -> bool {
-        match self.eval(ctx) {
-            Value::Bool(b) => b,
-            // Value::Str(s) => panic!("Expected bool, found string `{}`", s),
-            // Value::Num(x) => panic!("Expected bool, found number `{}`", x)
-            Value::Str(s) => s != "",
-            Value::Num(x) => x > 0
-        }
+        self.eval(ctx).is_truthy()
     }
 
     pub fn eval_str(&self, ctx: &mut EvaluationContext) -> String {

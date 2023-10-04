@@ -3,7 +3,7 @@ use thiserror::Error;
 
 use itertools::Itertools;
 
-use crate::expr::FieldId;
+use crate::{expr::FieldId, types::Value};
 
 use super::types::Number;
 
@@ -12,11 +12,8 @@ pub enum Error {
     #[error("field could not be parsed as a number")]
     NumberParseFailure,
 
-    #[error("field could not be parsed as a bool")]
-    BoolParseFailure,
-
-    #[error("field with index {0} does not exist")]
-    NoSuchField(usize),
+    #[error("field with id {0} does not exist")]
+    NoSuchField(FieldId),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -174,28 +171,49 @@ impl Record {
 
     pub fn nth_str(&self, n: usize) -> Result<&str> {
         if !self.has_field(&FieldId::Idx(n)) {
-            return Err(Error::NoSuchField(n));
+            return Err(Error::NoSuchField(FieldId::Idx(n)));
         }
         Ok(self.fields[n-1].as_str())
     }
 
-    pub fn nth_num(&self, n: usize) -> Result<Number> {
-        if !self.has_field(&FieldId::Idx(n)) {
-            return Err(Error::NoSuchField(n));
+    pub fn num_at(&self, id: &FieldId) -> Result<Number> {
+        if !self.has_field(&id) {
+            return Err(Error::NoSuchField(id.clone()));
         }
-        self.fields[n-1].parse::<Number>().map_err(|_| Error::NumberParseFailure)
+        self.get(id).parse::<Number>().map_err(|_| Error::NumberParseFailure)
     }
 
-    pub fn nth_bool(&self, n: usize) -> Result<bool> {
-        if !self.has_field(&FieldId::Idx(n)) {
-            return Err(Error::NoSuchField(n));
+    // pub fn nth_num(&self, n: usize) -> Result<Number> {
+    //     if !self.has_field(&FieldId::Idx(n)) {
+    //         return Err(Error::NoSuchField(FieldId::Idx(n)));
+    //     }
+    //     self.fields[n-1].parse::<Number>().map_err(|_| Error::NumberParseFailure)
+    // }
+
+    // todo fix this, it's inconsistent with values' definition for truthiness
+    pub fn bool_at(&self, id: &FieldId) -> Result<bool> {
+        if !self.has_field(&id) {
+            return Err(Error::NoSuchField(id.clone()))
         }
-        match self.fields[n-1].as_str() {
-            "true" => Ok(true),
-            "false" => Ok(false),
-            _ => Err(Error::BoolParseFailure)
-        }
+        let field = self.get(id);
+        let value = if let Ok(num) = field.parse::<Number>() {
+            Value::Num(num)
+        } else {
+            Value::Str(field.to_owned())
+        };
+        Ok(value.is_truthy())
     }
+
+    // pub fn nth_bool(&self, n: usize) -> Result<bool> {
+    //     if !self.has_field(&FieldId::Idx(n)) {
+    //         return Err(Error::NoSuchField(FieldId::Idx(n)));
+    //     }
+    //     match self.fields[n-1].as_str() {
+    //         "true" => Ok(true),
+    //         "false" => Ok(false),
+    //         _ => Err(Error::BoolParseFailure)
+    //     }
+    // }
 
     pub fn original_string(&self) -> &str {
         self.original_string.as_str()
