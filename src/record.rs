@@ -85,6 +85,12 @@ impl Record {
         self.fields.push(s)
     }
 
+    pub fn remove_field(&mut self, idx: usize) {
+        if self.has_field(idx) {
+            self.fields.remove(idx-1);
+        }
+    }
+
     pub fn has_field(&self, idx: usize) -> bool {
         idx > 0 && idx <= self.fields.len()
     }

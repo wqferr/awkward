@@ -8,7 +8,6 @@ use std::io::stdout;
 use clap::Parser;
 use clap::ValueHint;
 
-
 use program::Program;
 use record::Record;
 
@@ -25,16 +24,16 @@ const DEFAULT_LINE_ENDING: &str = "\n";
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    #[clap(long, short, help = "Program executed once, before processing begins")]
-    start_program: Option<String>,
+    // #[clap(long, short, help = "Program executed once, before processing begins")]
+    // start_program: Option<String>,
 
-    #[clap(long, short, help = "Program executed once, after processing ends")]
-    end_program: Option<String>,
+    // #[clap(long, short, help = "Program executed once, after processing ends")]
+    // end_program: Option<String>,
     
-    #[clap(long = "ifs", env = "IFS", default_value = " ", help = "Input field separator")]
+    #[clap(short = 'F', long = "ifs", env = "IFS", default_value = " ", help = "Input field separator")]
     input_field_separator: String,
     
-    #[clap(long = "ofs", env = "OFS", help = "Output field separator")]
+    #[clap(long = "ofs", env = "OFS", help = "Output field separator; defaults to ifs")]
     output_field_separator: Option<String>,
 
     // read until newline, this is too much of a headache
@@ -44,30 +43,37 @@ struct Args {
     #[clap(long = "ors", env = "ORS", default_value = DEFAULT_LINE_ENDING, help = "Output record separator")]
     output_record_separator: String,
 
-    #[clap(long, short, help = "Whether to consider consecutive field separator strings as empty fields")]
+    #[clap(short = 'e', long, help = "Whether to consider consecutive field separator strings as empty fields")]
     allow_empty_fields: bool,
 
     #[clap(
         long,
-        short = 'A',
+        short = 'E',
         requires("allow-empty-fields"),
         help = "Whether to consider consecutive record separator strings as empty records"
     )]
     allow_empty_records: bool,
 
     #[clap(
+        short = 'd',
         long,
-        short,
         help = "Whether to trim whitespace off the beginning and end of fields"
     )]
     dont_trim_fields: bool,
 
     #[clap(
-        long,
         short = 'H',
-        help = "Whether to skip the first record and interpret it as field names;"
+        long,
+        help = "Whether to skip the first record and interpret it as field names"
     )]
     header: bool,
+
+    #[clap(
+        short = 'v',
+        long = "assign",
+        help = "Assign the value val to the variable var; usage: -v var=val; this option can be repeated",
+    )]
+    vars: Option<Vec<String>>,
 
     #[clap(
         help = "Program executed once per record",
@@ -90,6 +96,8 @@ fn main() -> anyhow::Result<()> {
     let mut args = Args::parse();
 
     let ifs = args.input_field_separator;
+
+    // avoid ifs.clone() if ofs is defined
     let ofs = args.output_field_separator.unwrap_or_else(|| ifs.clone());
     let ors = args.output_record_separator;
 

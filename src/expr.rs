@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use regex::Regex;
 use crate::record::Record;
 use crate::types::{Value, Number, BuiltinFunction};
@@ -15,6 +15,7 @@ pub enum Expr {
     VarAssign(String, Box<Expr>),
 
     Deletion(FieldId),
+    Keep(Vec<FieldId>),
 
     StrLiteral(String),
     NumLiteral(Number),
@@ -156,7 +157,7 @@ impl Expr {
                         Value::Bool(ctx.current_record.borrow_mut().try_delete_field(*idx))
                     } else {
                         while ctx.current_record.borrow().len() > 0 {
-                            let len = ctx.current_record().borrow().len();
+                            let len = ctx.current_record.borrow().len();
                             ctx.current_record.borrow_mut().try_delete_field(len);
                         }
                         Value::Bool(true)
@@ -164,6 +165,25 @@ impl Expr {
                 } else {
                     panic!("this should never be reached: deletion on a non-string, non-index field id");
                 }
+            },
+
+            Keep(fields_to_keep) => {
+                let mut indices_to_keep = HashSet::with_capacity(fields_to_keep.len());
+                for field_id in fields_to_keep.iter() {
+                    indices_to_keep.insert(
+                        match field_id {
+                            FieldId::Name(name) => ctx.field_names().borrow()[name],
+                            FieldId::Idx(idx) => idx.clone()
+                        }
+                    );
+                }
+                let len = ctx.current_record.borrow().len();
+                for i in (1..len+1).rev() {
+                    if !indices_to_keep.contains(&i) {
+                        ctx.current_record.borrow_mut().remove_field(i);
+                    }
+                }
+                Value::Bool(true)
             },
 
             StrLiteral(s) => Value::Str(s.clone()),
@@ -291,7 +311,9 @@ impl EvaluationContext {
 
     pub fn set_field_names(&mut self, header: Vec<String>) {
         for (i, field_name) in header.into_iter().enumerate() {
-            self.field_names.borrow_mut().insert(field_name, i+1);
+            if field_name.len() > 0 {
+                self.field_names.borrow_mut().insert(field_name, i+1);
+            }
         }
     }
 
@@ -307,8 +329,8 @@ impl EvaluationContext {
         *self.current_record.borrow_mut() = r;
     }
 
-    pub fn current_record(&self) -> RefCell<Record> {
-        self.current_record.clone()
+    pub fn current_record(&self) -> &RefCell<Record> {
+        &self.current_record
     }
 
     pub fn ofs(&self) -> &str {

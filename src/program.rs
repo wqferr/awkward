@@ -91,6 +91,10 @@ impl Program {
             }
         });
 
+        // TODO fix field names with inserted fields
+        // TODO insert function
+        // TODO new record function
+
         let field_names = self.state.field_names().clone();
         let current_record = self.state.current_record().clone();
         self.register_builtin("isfield", move |args| {

@@ -104,6 +104,18 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
             )
             .map(|id| Expr::Deletion(id));
 
+        let keep =
+            just("keep").padded()
+            .ignore_then(
+                just('@').ignore_then(
+                    text::int(10).map(|x: String| FieldId::Idx(x.parse::<usize>().unwrap()))
+                        .or(text::ident().map(FieldId::Name))
+                )
+                .separated_by(just(',').padded())
+            ).map(|v|{
+                Expr::Keep(v)
+            });
+
         // let start = text::keyword("start").to(Expr::Start);
         // let end = text::keyword("end").to(Expr::End);
         let regex = 
@@ -153,6 +165,7 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
                 field_assignment,
                 var_assignment,
                 var_or_field_deletion,
+                keep,
                 call,
                 field,
                 var,
