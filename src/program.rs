@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use crate::expr::{Rule, EvaluationContext};
+use crate::expr::{Rule, EvaluationContext, FieldId, RuleCondition};
 use crate::record::Record;
 use crate::types::{Number, Value};
 
@@ -9,6 +9,8 @@ use chumsky::Parser;
 
 pub struct Program {
     rules: Vec<Rule>,
+    start_rules: Vec<Rule>,
+    end_rules: Vec<Rule>,
     state: EvaluationContext,
     record_terminator: String,
 
@@ -20,6 +22,8 @@ impl Program {
     pub fn new(ofs: String, ors: String) -> Self {
         let mut s = Self {
             rules: vec![],
+            start_rules: vec![],
+            end_rules: vec![],
             state: EvaluationContext::new(ofs),
             record_terminator: ors,
             output: RefCell::new(String::new()),
@@ -28,6 +32,18 @@ impl Program {
         };
         s.inject_bulitins();
         s
+    }
+
+    pub fn start(&mut self) {
+        for rule in self.start_rules.iter() {
+            rule.execute(&mut self.state);
+        }
+    }
+
+    pub fn end(&mut self) {
+        for rule in self.end_rules.iter() {
+            rule.execute(&mut self.state);
+        }
     }
 
     pub fn compile(source: &str) -> Vec<Rule> {
@@ -41,7 +57,7 @@ impl Program {
     pub fn register_builtin<F: 'static + FnMut(Vec<Value>) -> Value>(&mut self, name: &str, f: F) {
         self.state.register_builtin(name, f);
     }
-    
+
     pub fn output_field_separator(&self) -> &str {
         self.state.ofs()
     }
@@ -51,7 +67,13 @@ impl Program {
     }
 
     pub fn push_rules(&mut self, rules: Vec<Rule>) {
-        self.rules.extend(rules.into_iter());
+        for rule in rules.into_iter() {
+            match rule.condition() {
+                RuleCondition::Start => self.start_rules.push(rule),
+                RuleCondition::End => self.end_rules.push(rule),
+                _ => self.rules.push(rule)
+            }
+        }
     }
 
     fn inject_bulitins(&mut self) {
@@ -91,21 +113,57 @@ impl Program {
             }
         });
 
-        // TODO insert function
-        // TODO new record function
-
-        let field_names = self.state.field_names().clone();
         let current_record = self.state.current_record().clone();
         self.register_builtin("isfield", move |args| {
-            let id = &args[0];
-            if let Value::Str(name) = id {
-                Value::Bool(field_names.borrow().contains_key(name))
-            } else if let Value::Num(idx) = id {
-                Value::Bool(idx.frac() == 0 && idx <= &current_record.borrow().len())
+            let value = &args[0];
+            let id = if let Value::Str(name) = value {
+                FieldId::Name(name.clone())
+            } else if let Value::Num(idx) = value {
+                if idx.frac() != 0 {
+                    return Value::Bool(false)
+                }
+                FieldId::Idx(idx.to_num())
             } else {
-                Value::Bool(false)
-            }
+                return Value::Bool(false)
+            };
+            Value::Bool(current_record.borrow().has_field(&id))
         });
+
+        // insert("new last field")
+        // insert("new first field", 1)
+        // insert("new field before @fieldname", "fieldname")
+        // insert(123, 3, true) --> places 123 AFTER @3
+        // insert("otherfield", "thing", true, "newfieldname") --> creates newfieldname after @thing
+        let current_record = self.state.current_record().clone();
+        self.register_builtin("insert", move |args| {
+            let content = args[0].to_string();
+            let near = if let Some(x) = args.get(1) {
+                if let Value::Num(n) = x {
+                    FieldId::Idx(n.to_num())
+                } else if let Value::Str(name) = x {
+                    FieldId::Name(name.to_owned())
+                } else {
+                    return Value::Bool(false);
+                }
+            } else {
+                FieldId::Idx(current_record.borrow().len() + 1)
+            };
+            let after = args.get(2).map(|x| x.is_truthy()).unwrap_or(false);
+            let name = if let Some(value) = args.get(3) {
+                if let Value::Str(arg_name) = value {
+                    Some(arg_name.to_owned())
+                } else {
+                    return Value::Bool(false);
+                }
+            } else {
+                None
+            };
+            let ok = current_record.borrow_mut()
+                .insert_field(content, &near, after, name);
+            Value::Bool(ok.is_ok())
+        });
+
+        // TODO new record function
     }
 
     pub fn consume(&mut self, record: Record) {

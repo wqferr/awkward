@@ -257,6 +257,8 @@ pub fn program_parser() -> impl Parser<char, Vec<Rule>, Error=Simple<char>> {
 
     let rule =
         just("else").ignored().map(|()| RuleCondition::Else)
+        .or(just("start").ignored().map(|()| RuleCondition::Start))
+        .or(just("end").ignored().map(|()| RuleCondition::End))
         // duplicate arrow parser because otherwise it thinks the - is a unary minus for an expression
         .then_ignore(just("->").padded())
         .or(

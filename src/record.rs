@@ -113,6 +113,32 @@ impl Record {
         self.fields.push(s)
     }
 
+    pub fn insert_field(&mut self, content: String, near: &FieldId, after: bool, name: Option<String>) -> Result<()> {
+        let field_number = self.get_idx(near);
+        if field_number == 0 {
+            return Err(Error::NoSuchField(near.to_owned()));
+        }
+        let idx = field_number - 1 + if after { 1 } else { 0 };
+        while idx > self.fields.len() {
+            self.push_field("".to_owned());
+        }
+
+        for field_idx in self.field_names.values_mut() {
+            if *field_idx >= idx {
+                *field_idx += 1;
+            }
+        }
+        if idx == self.fields.len() {
+            self.push_field(content);
+        } else {
+            self.fields.insert(idx, content);
+            if let Some(name) = name {
+                self.set_field_name(name, field_number);
+            }
+        }
+        Ok(())
+    }
+
     pub fn has_field(&self, id: &FieldId) -> bool {
         match id {
             FieldId::Idx(idx) => idx > &0 && idx <= &self.fields.len(),
@@ -190,7 +216,6 @@ impl Record {
     //     self.fields[n-1].parse::<Number>().map_err(|_| Error::NumberParseFailure)
     // }
 
-    // todo fix this, it's inconsistent with values' definition for truthiness
     pub fn bool_at(&self, id: &FieldId) -> Result<bool> {
         if !self.has_field(&id) {
             return Err(Error::NoSuchField(id.clone()))

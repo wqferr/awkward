@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::rc::Rc;
 use std::collections::HashMap;
 use std::fmt::Display;
 use regex::Regex;
@@ -48,18 +49,20 @@ pub enum Expr {
 }
 
 pub struct EvaluationContext {
-    current_record: RefCell<Record>,
+    current_record: Rc<RefCell<Record>>,
     ofs: String,
-    initial_field_names: RefCell<HashMap<String, usize>>,
+    initial_field_names: Rc<RefCell<HashMap<String, usize>>>,
 
     functions: HashMap<String, BuiltinFunction>,
-    variables: RefCell<HashMap<String, Value>>
+    variables: Rc<RefCell<HashMap<String, Value>>>
 }
 
 #[derive(Debug, Clone)]
 pub enum RuleCondition {
     Expression(Expr),
-    Else
+    Else,
+    Start,
+    End
 }
 
 #[derive(Debug, Clone)]
@@ -68,7 +71,7 @@ pub struct Rule {
     actions: Vec<Expr>
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldId {
     Name(String),
     Idx(usize)
@@ -228,17 +231,27 @@ impl Rule {
     }
 
     pub fn applies(&self, last_condition_matched: &bool, ctx: &mut EvaluationContext) -> bool {
+        use RuleCondition::*;
         match &self.condition {
-            RuleCondition::Else => !last_condition_matched,
-            RuleCondition::Expression(expr) => expr.eval_bool(ctx)
+            Else => !last_condition_matched,
+            Expression(expr) => expr.eval_bool(ctx),
+            Start | End => false
+        }
+    }
+
+    pub fn condition(&self) -> &RuleCondition {
+        &self.condition
+    }
+
+    pub fn execute(&self, ctx: &mut EvaluationContext) {
+        for action in self.actions.iter() {
+            action.eval(ctx);
         }
     }
 
     pub fn execute_if_applies(&self, last_condition_matched: &mut bool, ctx: &mut EvaluationContext) {
         if self.applies(last_condition_matched, ctx) {
-            for action in self.actions.iter() {
-                action.eval(ctx);
-            }
+            self.execute(ctx);
             *last_condition_matched = true;
         } else {
             *last_condition_matched = false;
@@ -249,12 +262,12 @@ impl Rule {
 impl EvaluationContext {
     pub fn new(ofs: String) -> Self {
         Self {
-            current_record: RefCell::new(Record::empty()),
+            current_record: Rc::new(RefCell::new(Record::empty())),
             ofs,
-            initial_field_names: RefCell::new(HashMap::new()),
+            initial_field_names: Rc::new(RefCell::new(HashMap::new())),
 
             functions: HashMap::new(),
-            variables: RefCell::new(HashMap::new())
+            variables: Rc::new(RefCell::new(HashMap::new()))
         }
     }
 
@@ -262,10 +275,6 @@ impl EvaluationContext {
         for (k, v) in self.initial_field_names.borrow().iter() {
             self.current_record().borrow_mut().set_field_name(k.clone(), *v);
         }
-    }
-
-    pub fn field_names(&self) -> &RefCell<HashMap<String, usize>> {
-        &self.initial_field_names
     }
 
     pub fn set_field_names(&mut self, header: Vec<String>) {
@@ -285,10 +294,10 @@ impl EvaluationContext {
     }
 
     pub fn set_current_record(&mut self, r: Record) {
-        *self.current_record.borrow_mut() = r;
+        self.current_record.replace(r);
     }
 
-    pub fn current_record(&self) -> &RefCell<Record> {
+    pub fn current_record(&self) -> &Rc<RefCell<Record>> {
         &self.current_record
     }
 
