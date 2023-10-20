@@ -58,8 +58,7 @@ impl Record {
 
     pub fn process(&mut self, skip_blanks: bool, trim: bool) {
         let mut processed: Box<dyn Iterator<Item=&str>> = Box::new(
-            self.fields.iter()
-                .map(|s| s.as_str())
+            self.fields.iter().map(String::as_str)
         );
         if skip_blanks {
             processed = Box::new(processed.filter(|&x| !x.is_empty()));
@@ -228,17 +227,6 @@ impl Record {
         };
         Ok(value.is_truthy())
     }
-
-    // pub fn nth_bool(&self, n: usize) -> Result<bool> {
-    //     if !self.has_field(&FieldId::Idx(n)) {
-    //         return Err(Error::NoSuchField(FieldId::Idx(n)));
-    //     }
-    //     match self.fields[n-1].as_str() {
-    //         "true" => Ok(true),
-    //         "false" => Ok(false),
-    //         _ => Err(Error::BoolParseFailure)
-    //     }
-    // }
 
     pub fn original_string(&self) -> &str {
         self.original_string.as_str()

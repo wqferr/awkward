@@ -1,3 +1,4 @@
+use std::rc::Rc;
 use std::cell::RefCell;
 
 use crate::expr::{Rule, EvaluationContext, FieldId, RuleCondition};
@@ -14,8 +15,9 @@ pub struct Program {
     state: EvaluationContext,
     record_terminator: String,
 
-    output: RefCell<String>,
-    record_number: RefCell<usize>,
+    output: Rc<RefCell<String>>,
+    record_number: Rc<RefCell<usize>>,
+    produced_output: Rc<RefCell<bool>>
 }
 
 impl Program {
@@ -26,19 +28,27 @@ impl Program {
             end_rules: vec![],
             state: EvaluationContext::new(ofs),
             record_terminator: ors,
-            output: RefCell::new(String::new()),
+            output: Rc::new(RefCell::new(String::new())),
 
-            record_number: RefCell::new(0usize)
+            record_number: Rc::new(RefCell::new(0usize)),
+            produced_output: Rc::new(RefCell::new(false))
         };
         s.inject_bulitins();
         s
     }
 
-    pub fn start(&mut self) {
-        for rule in self.start_rules.iter() {
-            rule.execute(&mut self.state);
+    pub fn start(&mut self, header: Option<Record>) {
+        if let Some(record) = header {
+            self.prepare_for_new_record(record);
+        } else {
+            self.prepare_for_new_record(Record::empty());
         }
+        for r in self.start_rules.iter() {
+            r.execute(&mut self.state);
+        }
+        self.produce_record_output();
     }
+
 
     pub fn end(&mut self) {
         for rule in self.end_rules.iter() {
@@ -63,7 +73,7 @@ impl Program {
     }
 
     pub fn output_record_terminator(&self) -> &str {
-        self.record_terminator.as_str()
+        &self.record_terminator
     }
 
     pub fn push_rules(&mut self, rules: Vec<Rule>) {
@@ -94,14 +104,6 @@ impl Program {
 
         let terminator = self.output_record_terminator().to_owned();
         self.register_builtin("ors", move |_| Value::Str(terminator.clone()));
-
-        let current_record = self.state.current_record().clone();
-        self.register_builtin("push", move |fields| {
-            for field in fields.iter() {
-                current_record.borrow_mut().push_field(field.to_string());
-            }
-            Value::Bool(true)
-        });
 
         let variables = self.state.variables().clone();
         self.register_builtin("isvar", move |args| {
@@ -163,26 +165,80 @@ impl Program {
             Value::Bool(ok.is_ok())
         });
 
-        // TODO new record function
+        let output = self.output.clone();
+        let record_terminator = self.record_terminator.clone();
+        let current_record = self.state.current_record().clone();
+        let produced_output = self.produced_output.clone();
+        // TODO accept argument taht dictates whether or not current record
+        // is replaced by a new, empty one
+        let newrec = move |_args: Vec<Value>| {
+            if !output.borrow().ends_with(&record_terminator) {
+                output.borrow_mut().push_str(&record_terminator);
+            }
+            current_record.replace(Record::empty());
+            *produced_output.borrow_mut() = true;
+            Value::Bool(true)
+        };
+        self.register_builtin("newrec", newrec.clone());
+
+        let output = self.output.clone();
+        let field_separator = String::from(self.output_field_separator());
+        let record_terminator = self.record_terminator.clone();
+        let produced_output = self.produced_output.clone();
+        let print = move |args: Vec<Value>| {
+            for arg in args.iter() {
+                if output.borrow().len() > 0 && !output.borrow().ends_with(record_terminator.as_str()) {
+                    // print separator before value
+                    output.borrow_mut().push_str(&field_separator);
+                }
+                output.borrow_mut().push_str(&arg.to_string());
+            }
+            *produced_output.borrow_mut() = true;
+            Value::Bool(true)
+        };
+        self.register_builtin("print", print.clone());
+
+        let print = print.clone();
+        self.register_builtin("printnew", move |args| {
+            print(args);
+            newrec(vec![]);
+            Value::Bool(true)
+        });
     }
 
-    pub fn consume(&mut self, record: Record) {
+    fn prepare_for_new_record(&mut self, record: Record) {
         self.output.borrow_mut().clear();
+        *self.produced_output.borrow_mut() = false;
 
         self.state.set_current_record(record);
         self.state.reset_field_names();
+    }
+
+    fn produce_record_output(&mut self) {
+        if *self.produced_output.borrow() {
+            // do not auto print the record
+            // if a print function was called
+            return;
+        }
+
+        let record_str = self.state
+            .current_record()
+            .borrow()
+            .join(self.output_field_separator());
+
+        let mut output_borrow = self.output.borrow_mut();
+        output_borrow.push_str(&record_str);
+        output_borrow.push_str(&self.record_terminator);
+    }
+
+    pub fn consume(&mut self, record: Record) {
+        self.prepare_for_new_record(record);
         *self.record_number.borrow_mut() += 1;
         let mut last_condition_matched = true;
         for r in self.rules.iter() {
             r.execute_if_applies(&mut last_condition_matched, &mut self.state);
         }
-        let record_str = self.state
-            .current_record()
-            .borrow()
-            .join(self.output_field_separator());
-        let mut output_borrow = self.output.borrow_mut();
-        output_borrow.push_str(&record_str);
-        output_borrow.push_str(self.record_terminator.as_str());
+        self.produce_record_output();
     }
 
     pub fn last_output(&self) -> String {

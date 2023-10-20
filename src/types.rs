@@ -19,7 +19,7 @@ impl Value {
     pub fn is_truthy(&self) -> bool {
         match self {
             Value::Bool(b) => b.clone(),
-            Value::Str(s) => s.as_str() != "",
+            Value::Str(s) => s.len() > 0,
             Value::Num(x) => x > &0
         }
     }

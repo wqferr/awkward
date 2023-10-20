@@ -115,12 +115,13 @@ fn main() -> anyhow::Result<()> {
     let mut input = sin.lock();
     let mut output = sout.lock();
 
-    prog.start();
-    // TODO check for output produced in start
     if args.header {
         let mut field_names = Record::read(&mut input, &ifs)?;
         field_names.process(false, true);
-        prog.set_field_names(field_names.into_iter().collect());
+        prog.set_field_names(field_names.clone().into_iter().collect());
+        prog.start(Some(field_names));
+    } else {
+        prog.start(None);
     }
     loop {
         let mut record = Record::read(&mut input, &ifs)?;

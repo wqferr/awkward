@@ -155,15 +155,15 @@ impl Expr {
             Concat(x, y) => {
                 let mut s1 = x.eval_str(ctx);
                 let s2 = y.eval_str(ctx);
-                s1.push_str(s2.as_str());
+                s1.push_str(&s2);
 
                 Value::Str(s1)
             },
             ConcatWSep(x, y) => {
                 let mut s1 = x.eval_str(ctx);
                 let s2 = y.eval_str(ctx);
-                s1.push_str(ctx.ofs.as_str());
-                s1.push_str(s2.as_str());
+                s1.push_str(&ctx.ofs);
+                s1.push_str(&s2);
 
                 Value::Str(s1)
             },

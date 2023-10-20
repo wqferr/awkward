@@ -1,0 +1,6 @@
+start -> myvar = false;
+n@1 % 3 == 0 -> insert("fizz");
+n@1 % 5 == 0 -> insert("buzz");
+n@1 % 15 == 0 -> myvar = true;
+isfield(2) -> drop @1;
+myvar -> insert(myvar);

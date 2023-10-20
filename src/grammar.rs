@@ -148,7 +148,7 @@ fn expr_parser() -> impl Parser<char, Expr, Error=Simple<char>> + Clone {
                     };
                     Expr::RegexSearch {
                         re: Regex::new(
-                            v.into_iter().collect::<String>().as_str()
+                            &v.into_iter().collect::<String>()
                         ).unwrap(),
                         field: field_id
                     }
