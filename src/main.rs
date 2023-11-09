@@ -62,6 +62,13 @@ struct Args {
     dont_trim_fields: bool,
 
     #[clap(
+        short = 'x',
+        long,
+        help = "Whether to implicitly print each record or only print explicit print calls"
+    )]
+    explicit_print: bool,
+
+    #[clap(
         short = 'H',
         long,
         help = "Whether to skip the first record and interpret it as field names"
@@ -100,13 +107,14 @@ fn main() -> anyhow::Result<()> {
     // avoid ifs.clone() if ofs is defined
     let ofs = args.output_field_separator.unwrap_or_else(|| ifs.clone());
     let ors = args.output_record_separator;
+    let explicit_print = args.explicit_print;
 
     if args.program_file.is_some() {
         let path = args.program_file.unwrap();
         args.program = Some(read_to_string(path)?);
     }
 
-    let mut prog = Program::new(ofs, ors);
+    let mut prog = Program::new(ofs, ors, explicit_print);
     prog.push_rules(Program::compile(args.program.unwrap().as_str()));
 
     let sin = stdin();
@@ -138,6 +146,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
     prog.end();
-    // TODO check for output produced in end
+    output.write_all(prog.last_output().as_bytes())?;
+
     Ok(())
 }

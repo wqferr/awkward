@@ -1,5 +1,5 @@
 [package]
-name = "awkward"
+name = "awd"
 version = "0.1.0"
 authors = ["William Quelho Ferreira <wqferr@gmail.com>"]
 license = "GPL-3.0-or-later"

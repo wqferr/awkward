@@ -14,6 +14,7 @@ pub struct Program {
     end_rules: Vec<Rule>,
     state: EvaluationContext,
     record_terminator: String,
+    explicit_print: bool,
 
     output: Rc<RefCell<String>>,
     record_number: Rc<RefCell<usize>>,
@@ -21,13 +22,14 @@ pub struct Program {
 }
 
 impl Program {
-    pub fn new(ofs: String, ors: String) -> Self {
+    pub fn new(ofs: String, ors: String, explicit_print: bool) -> Self {
         let mut s = Self {
             rules: vec![],
             start_rules: vec![],
             end_rules: vec![],
             state: EvaluationContext::new(ofs),
             record_terminator: ors,
+            explicit_print,
             output: Rc::new(RefCell::new(String::new())),
 
             record_number: Rc::new(RefCell::new(0usize)),
@@ -215,9 +217,10 @@ impl Program {
     }
 
     fn produce_record_output(&mut self) {
-        if *self.produced_output.borrow() {
+        if *self.produced_output.borrow() || self.explicit_print {
             // do not auto print the record
-            // if a print function was called
+            // if a print function was called OR
+            // if explicit_print is set
             return;
         }
 
@@ -253,7 +256,7 @@ mod test {
     #[test]
     fn test_simple() {
         let rules = program_parser().parse(r#"@3 = n@1 + n@2, put(nr(), @0)"#).unwrap();
-        let mut prog = Program::new(",".to_owned(), "\n".to_owned());
+        let mut prog = Program::new(",".to_owned(), "\n".to_owned(), false);
         prog.push_rules(rules);
 
         prog.consume(Record::from("1,2".to_owned(), ","));
