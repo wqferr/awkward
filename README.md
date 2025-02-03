@@ -38,3 +38,12 @@ An `action` can be any valid `expression`, which are:
 - \*Regex match (`/^\d+$/`).
 
 `expressions` marked with \* are no-ops when used as actions.
+
+## Why use this over AWK?
+
+While Awkward is not as powerful as AWK (it doesn't support loops, for example), it makes some quality of life changes.
+For example, variables are accessed with `@` instead of `$`. This means you can use either type of quote from your shell
+when writing inline programs, without fear of having to escape variable accesses when meshing shell variables and Awkward variables.
+
+Awkward also provides no type coersions. If you want a number, you have to request it. That makes it easier to pin down where
+a conversion is going wrong.
